@@ -1,0 +1,2871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Fics" id="meta-app-title" />
+<meta name="application-name" content="Fics" id="meta-app-name" />
+<title>Fics</title>
+<link rel="icon" id="link-icon" href="data:," />
+<link rel="apple-touch-icon" id="link-touch-icon" href="data:," />
+<script>
+/* =====================================================================================
+   FANDOMS — the one list that defines every fandom this app serves.
+   To add a fandom, add ONE entry below. Nothing else in the file needs to change.
+
+     id       Short, URL-safe name used in links (?fandom=<id>) and as the prefix of every
+              saved setting for that fandom. Don't change it once you've used it, or that
+              fandom's saved filters, cache and queued changes are left behind.
+     name     The fandom, as shown in the header and the fandom switcher.
+     title    The app title: header, browser tab and home-screen name.
+     sheetId  The Google Sheet ID (the long part of the sheet's URL). The sheet needs the usual
+              "Data List" tab (and "Reading Log" tab for reading history).
+     mode     "single" = one pairing, no ships (like Hollanov).
+              "multi"  = several pairings: Relationships column, ship chips, ship scoring,
+                         DNR Ships, and ships in the Content picker (like ASOIAF).
+     pairing  (single mode) The pairing, shown after the fandom name in the header.
+     accent   color     Fandom accent: count pill, Unread chip, selected rating, End button.
+              on        Text colour on top of the accent.
+              text      Accent-coloured text on light backgrounds (score, links).
+              textDark  Accent-coloured text on dark backgrounds (dark mode).
+   ===================================================================================== */
+window.FANDOMS = [
+  { id: 'merlin', name: 'Merlin', title: 'Merthur', mode: 'single', pairing: 'Arthur / Merlin',
+    sheetId: '1BBMVuyRjt68rzE4gSQyyaGvq_6RHp3qsT04kzlzpung',
+    accent: { color: '#B3123A', on: '#FFFFFF', text: '#B3123A', textDark: '#FF8FA3' } },
+  { id: '911', name: '9-1-1', title: 'Buddie', mode: 'single', pairing: 'Buck / Eddie',
+    sheetId: '10e0f3_-d-wE7PXuaLzGUwSlfH_wTZkemoBiJ7XGxFRM',
+    accent: { color: '#22B8CF', on: '#111111', text: '#0B7285', textDark: '#66D9E8' } },
+  { id: 'suits', name: 'Suits', title: 'Suits', mode: 'single', pairing: 'Harvey / Mike',
+    sheetId: '1Ob86vFTIif45SmVyAUp4WhOYlg4EnWkIyvi63WnhoGY',
+    accent: { color: '#0F766E', on: '#FFFFFF', text: '#0F766E', textDark: '#5EEAD4' } },
+  { id: 'ofmd', name: 'Our Flag Means Death', title: 'OFMD', mode: 'single', pairing: 'Ed / Stede',
+    sheetId: '1-hnHNHphzHeUFj_Xiaj4D8K17uggxbOBizDMqzjr0tY',
+    accent: { color: '#C026D3', on: '#FFFFFF', text: '#A21CAF', textDark: '#F0ABFC' } },
+  { id: 'lesmis', name: 'Les Misérables', title: 'E/R', mode: 'single', pairing: 'Enjolras / Grantaire',
+    sheetId: '1qKQYUFuLLJ-cUXmeKCgdbkyTu1Pg7aD0agddIukm2OA',
+    accent: { color: '#1E3A8A', on: '#FFFFFF', text: '#1E3A8A', textDark: '#93C5FD' } },
+  { id: 'rwrb', name: 'Red, White & Royal Blue', title: 'RWRB', mode: 'single', pairing: 'Alex / Henry',
+    sheetId: '1CkS3NvLCjBVOsuoCRTmJTa8sX-huPtvC-X5ILIlSsxo',
+    accent: { color: '#7C3AED', on: '#FFFFFF', text: '#6D28D9', textDark: '#C4B5FD' } },
+  { id: 'strangerthings', name: 'Stranger Things', title: 'Stranger Things', mode: 'multi',
+    sheetId: '1s_9bQ-c5oPtOsBwGqfNqM0uvW7j_Tlmd9Bd5BZvxImI',
+    accent: { color: '#EA580C', on: '#111111', text: '#C2410C', textDark: '#FDBA74' } },
+  { id: 'marauders', name: 'Harry Potter', title: 'Marauders', mode: 'multi',
+    sheetId: '12h89MJFpmBsLZxjeWWnke9Y95W4c1MX66XbSkzcuShw',
+    accent: { color: '#D4A017', on: '#111111', text: '#8A6400', textDark: '#F5C842' } },
+];
+
+/* ---------- Boot: pick the fandom and paint its colours/title before the app loads ---------- */
+(function () {
+  // Keys shared by every fandom (no fandom prefix). Everything else is "<fandom id>:<name>".
+  window.FICS_KEYS = { lastFandom: 'fics:last-fandom', token: 'fics:gtoken', signedIn: 'fics:signed-in', theme: 'fics:theme' };
+  var byId = {};
+  window.FANDOMS.forEach(function (f) { byId[f.id] = f; });
+  window.FANDOM_BY_ID = byId;
+  function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  window.applyTheme = function (theme) {
+    if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+    else document.documentElement.removeAttribute('data-theme');
+  };
+
+  function iconUrl(f, size) {
+    try {
+      var c = document.createElement('canvas'); c.width = c.height = size;
+      var x = c.getContext('2d');
+      x.fillStyle = f.accent.color; x.fillRect(0, 0, size, size);
+      var label = f.title.replace(/[^A-Za-z0-9]/g, '').slice(0, 2) || f.title.slice(0, 1);
+      x.fillStyle = f.accent.on; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = '800 ' + Math.round(size * (label.length > 1 ? 0.42 : 0.55)) + 'px "Plus Jakarta Sans", system-ui, sans-serif';
+      x.fillText(label, size / 2, size / 2 + size * 0.03);
+      return c.toDataURL('image/png');
+    } catch (e) { return 'data:,'; }
+  }
+
+  // Accent colours, tab title, home-screen name and icon for one fandom.
+  window.applyFandomChrome = function (f) {
+    if (!f) { document.title = 'Fics'; return; }
+    var s = document.documentElement.style;
+    s.setProperty('--fa', f.accent.color); s.setProperty('--fa-on', f.accent.on);
+    s.setProperty('--fa-text', f.accent.text); s.setProperty('--fa-text-dark', f.accent.textDark);
+    document.title = f.title + ' Fics';
+    var t = document.getElementById('meta-app-title'); if (t) t.setAttribute('content', f.title);
+    var n = document.getElementById('meta-app-name'); if (n) n.setAttribute('content', f.title);
+    var i = document.getElementById('link-icon'); if (i) i.setAttribute('href', iconUrl(f, 64));
+    var ti = document.getElementById('link-touch-icon'); if (ti) ti.setAttribute('href', iconUrl(f, 180));
+  };
+
+  // ?fandom=<id> wins and becomes the new "last used"; otherwise reopen the last fandom used.
+  // Only a very first launch (nothing used yet) gets the picker.
+  var q = null;
+  try { q = new URLSearchParams(location.search).get('fandom'); } catch (e) {}
+  var id = null;
+  if (q && byId[q]) { id = q; set(window.FICS_KEYS.lastFandom, q); }
+  else { var last = get(window.FICS_KEYS.lastFandom); if (last && byId[last]) id = last; }
+  window.FICS_INITIAL_FANDOM = id;
+  try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) {}
+  window.applyTheme(get(window.FICS_KEYS.theme));
+  window.applyFandomChrome(byId[id]);
+})();
+</script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" />
+<style>
+  /* ---------- Shelf Life v2 tokens ---------- */
+  :root {
+    --bg: #F6F6F9; --surface: #FFFFFF; --surface-sunken: #F6F6F9; --track: #ECECF2; --handle: #D8D8E0;
+    --text: #111111; --text-secondary: #3E3E48; --text-placeholder: #5A5A66;
+    --inverse: #111111; --on-inverse: #FFFFFF;
+    --blue: #2D5BFF; --lime: #D4F55B; --coral: #FF6B4A; --pink: #FFA8D8; --grey-block: #E4E4EC; --on-grey: #111111;
+    --dnf-tint: #FFE3DB; --notint-tint: #EDEDF2;
+    --error-text: #C2311A; --error-bg: #FFE3DB; --warn-text: #6B5300; --warn-bg: #FFF5C2;
+    --scrim: rgba(17,17,17,0.42);
+    --shadow-card: 0 6px 20px rgba(17,17,17,0.06); --shadow-control: 0 2px 8px rgba(17,17,17,0.06);
+    --shadow-float: 0 10px 30px rgba(17,17,17,0.14); --shadow-sheet: 0 -10px 30px rgba(17,17,17,0.12);
+    /* Fandom accent: set at runtime from the FANDOMS list (see applyFandomChrome) */
+    --accent: var(--fa, #2D5BFF); --on-accent: var(--fa-on, #FFFFFF); --accent-text: var(--fa-text, #2D5BFF);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F0F14; --surface: #1B1B23; --surface-sunken: #24242E; --track: #2E2E3A; --handle: #4A4A58;
+      --text: #F4F4F8; --text-secondary: #B4B4C2; --text-placeholder: #9A9AAA;
+      --inverse: #F4F4F8; --on-inverse: #111111;
+      --grey-block: #3A3A48; --on-grey: #F4F4F8;
+      --dnf-tint: #3A1F1A; --notint-tint: #24242E;
+      --error-text: #FF8A73; --error-bg: #3A1F1A; --warn-text: #FFE27A; --warn-bg: #3A3210;
+      --scrim: rgba(0,0,0,0.60);
+      --shadow-card: 0 6px 20px rgba(0,0,0,0.45); --shadow-control: 0 2px 8px rgba(0,0,0,0.45);
+      --shadow-float: 0 10px 30px rgba(0,0,0,0.55); --shadow-sheet: 0 -10px 30px rgba(0,0,0,0.5);
+      --accent-text: var(--fa-text-dark, #8FA8FF);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F0F14; --surface: #1B1B23; --surface-sunken: #24242E; --track: #2E2E3A; --handle: #4A4A58;
+    --text: #F4F4F8; --text-secondary: #B4B4C2; --text-placeholder: #9A9AAA;
+    --inverse: #F4F4F8; --on-inverse: #111111;
+    --grey-block: #3A3A48; --on-grey: #F4F4F8;
+    --dnf-tint: #3A1F1A; --notint-tint: #24242E;
+    --error-text: #FF8A73; --error-bg: #3A1F1A; --warn-text: #FFE27A; --warn-bg: #3A3210;
+    --scrim: rgba(0,0,0,0.60);
+    --shadow-card: 0 6px 20px rgba(0,0,0,0.45); --shadow-control: 0 2px 8px rgba(0,0,0,0.45);
+    --shadow-float: 0 10px 30px rgba(0,0,0,0.55); --shadow-sheet: 0 -10px 30px rgba(0,0,0,0.5);
+    --accent-text: var(--fa-text-dark, #8FA8FF);
+    color-scheme: dark;
+  }
+
+  /* ---------- Base ---------- */
+  html, body, #root { min-height: 100%; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 500;
+         -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; }
+  *, *::before, *::after { box-sizing: border-box; }
+  button, input { font-family: inherit; color: inherit; }
+  button { cursor: pointer; border: 0; background: none; padding: 0; }
+  button:disabled { cursor: default; }
+  input::placeholder { color: var(--text-placeholder); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  a { color: inherit; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes sheetUp { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- Layout ---------- */
+  .app { max-width: 560px; margin: 0 auto; padding: 22px 16px 104px; }
+  .stack { display: flex; flex-direction: column; }
+  .row { display: flex; align-items: center; }
+  .wrap { display: flex; flex-wrap: wrap; }
+  .hscroll { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; }
+  .hscroll::-webkit-scrollbar { display: none; }
+
+  /* ---------- Type ---------- */
+  .t-fandom { font-size: 13px; font-weight: 700; color: var(--text-secondary); }
+  .t-app { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+  .t-section { margin: 0; font-size: 17px; font-weight: 800; line-height: 1.3; }
+  .t-card { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; }
+  .t-card.big { font-size: 21px; }
+  .t-shelf { margin: 0; font-size: 16px; font-weight: 800; line-height: 1.3; }
+  .t-sheet { margin: 0; font-size: 23px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; }
+  .t-meta { font-size: 13px; font-weight: 600; color: var(--text-secondary); line-height: 1.4; }
+  .t-body { font-size: 14px; font-weight: 500; line-height: 1.55; color: var(--text-secondary); margin: 0; }
+  .t-caption { font-size: 12px; font-weight: 600; color: var(--text-secondary); line-height: 1.4; }
+  .t-caps { font-size: 12px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-secondary); }
+  .t-label { font-size: 13px; font-weight: 800; }
+  .hl { background: linear-gradient(180deg, transparent 55%, var(--lime) 55%, var(--lime) 92%, transparent 92%); padding: 0 4px;
+        -webkit-box-decoration-break: clone; box-decoration-break: clone; color: var(--text); }
+  :root[data-theme="dark"] .hl { color: #111111; background: linear-gradient(180deg, transparent 10%, var(--lime) 10%, var(--lime) 92%, transparent 92%); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .hl { color: #111111; background: linear-gradient(180deg, transparent 10%, var(--lime) 10%, var(--lime) 92%, transparent 92%); } }
+
+  /* ---------- Surfaces ---------- */
+  .card { background: var(--surface); border-radius: 26px; padding: 16px; box-shadow: var(--shadow-card); position: relative; }
+  .card.dnf { background: var(--dnf-tint); }
+  .card.notint { background: var(--notint-tint); }
+  .panel { background: var(--surface-sunken); border-radius: 20px; padding: 14px; }
+  .banner { border-radius: 20px; padding: 12px 14px; font-size: 13px; font-weight: 600; line-height: 1.45; }
+  .banner.error { background: var(--error-bg); color: var(--error-text); }
+  .banner.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .banner.info { background: var(--surface-sunken); color: var(--text-secondary); }
+
+  /* ---------- Buttons ---------- */
+  .btn { min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 700; display: inline-flex;
+         align-items: center; justify-content: center; gap: 6px; text-decoration: none; white-space: nowrap; }
+  .btn-primary { background: var(--inverse); color: var(--on-inverse); }
+  .btn-secondary { background: var(--surface-sunken); color: var(--text); }
+  .btn-danger { background: var(--coral); color: #111111; }
+  .btn-text { background: transparent; color: var(--text-secondary); padding: 0 6px; }
+  .btn:disabled { background: var(--track); color: var(--text-secondary); }
+  .btn-lg { min-height: 52px; font-size: 15px; font-weight: 800; }
+  .btn-xl { min-height: 54px; font-size: 16px; font-weight: 800; width: 100%; }
+  .icon-btn { width: 44px; height: 44px; flex-shrink: 0; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+              background: var(--surface-sunken); color: var(--text); }
+  .icon-btn.raised { background: var(--surface); box-shadow: var(--shadow-control); }
+  .link { background: none; color: var(--accent-text); font-weight: 700; font-size: 13px; min-height: 32px; padding: 0 4px; }
+  .grow { flex: 1 1 0; }
+
+  /* ---------- Chips, pills, tags ---------- */
+  .chip { flex-shrink: 0; min-height: 44px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
+          display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: var(--surface); color: var(--text);
+          box-shadow: var(--shadow-control); }
+  .chip[aria-pressed="true"] { font-weight: 700; box-shadow: none; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 800; line-height: 1.3; }
+  .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 11px; font-size: 13px; font-weight: 600;
+         background: var(--surface-sunken); color: var(--text); line-height: 1.3; }
+  .card .tag { background: var(--surface-sunken); }
+  .card.dnf .tag, .card.notint .tag { background: var(--surface); }
+  .pick { min-height: 40px; margin: 2px 0; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+          background: var(--surface); color: var(--text); display: inline-flex; align-items: center; gap: 5px; text-align: left; }
+  .pick[aria-pressed="true"] { background: var(--inverse); color: var(--on-inverse); font-weight: 700; }
+  .count-pill { background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 4px 10px; font-weight: 800; font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; }
+
+  /* ---------- Segmented sort ---------- */
+  .seg { display: flex; gap: 4px; background: var(--surface); border-radius: 999px; padding: 4px; box-shadow: var(--shadow-control); }
+  .seg button { flex: 1 1 0; min-height: 40px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--inverse); color: var(--on-inverse); font-weight: 700; }
+
+  /* ---------- Search ---------- */
+  .search { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 4px 0 16px; background: var(--surface);
+            border-radius: 999px; box-shadow: var(--shadow-control); color: var(--text-secondary); }
+  .search.sunken { background: var(--surface-sunken); box-shadow: none; min-height: 44px; }
+  .search input { border: 0; outline: 0; flex: 1; min-width: 0; font-size: 15px; font-weight: 500; background: transparent; color: var(--text); min-height: 44px; }
+
+  /* ---------- Progress ---------- */
+  .track { flex: 1; height: 10px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .track > div { height: 100%; border-radius: 999px; }
+
+  /* ---------- Sheets ---------- */
+  .scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 40; display: flex; align-items: flex-end; justify-content: center; }
+  .sheet { width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; background: var(--surface); border-radius: 30px 30px 0 0;
+           padding: 10px 16px calc(24px + env(safe-area-inset-bottom)); box-shadow: var(--shadow-sheet); animation: sheetUp 180ms ease-out;
+           display: flex; flex-direction: column; gap: 14px; outline: none; }
+  .sheet .handle { width: 40px; height: 5px; border-radius: 999px; background: var(--handle); align-self: center; flex-shrink: 0; }
+  .sheet .pick { background: var(--surface); }
+  .sheet .pick[aria-pressed="true"] { background: var(--inverse); color: var(--on-inverse); }
+  .step { display: inline-flex; width: 24px; height: 24px; border-radius: 999px; background: var(--inverse); color: var(--on-inverse);
+          align-items: center; justify-content: center; font-size: 12px; font-weight: 800; margin-right: 6px; flex-shrink: 0; }
+  .tile { min-height: 56px; border-radius: 18px; background: var(--surface-sunken); font-size: 20px; font-weight: 800; color: var(--text); }
+  .tile[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+  /* ---------- Floating nav ---------- */
+  .nav { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom)); width: calc(100% - 48px);
+         max-width: 420px; height: 64px; background: var(--surface); border-radius: 999px; box-shadow: var(--shadow-float);
+         display: flex; align-items: center; justify-content: space-around; padding: 0 8px; z-index: 30; }
+  .nav button { height: 48px; min-width: 48px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+                color: var(--text); font-size: 14px; font-weight: 700; padding: 0 12px; }
+  .nav button[aria-current="page"] { background: var(--inverse); color: var(--on-inverse); padding: 0 16px; }
+
+  /* ---------- Popover ---------- */
+  .popover { position: absolute; right: 16px; top: 64px; z-index: 20; background: var(--surface); border-radius: 20px; padding: 8px;
+             box-shadow: var(--shadow-float); display: flex; gap: 8px; }
+  /* ---------- Reading-session pill ---------- */
+  .app.has-session { padding-bottom: 176px; }
+  .icon-btn:disabled { opacity: 0.4; cursor: default; }
+  .session-pill { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom)); width: calc(100% - 48px);
+                  max-width: 420px; min-height: 56px; background: var(--inverse); color: var(--on-inverse); border-radius: 999px;
+                  box-shadow: var(--shadow-float); display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 8px; z-index: 31; }
+  .session-pill-main { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 8px;
+                       color: inherit; text-align: left; border-radius: 999px; }
+  .session-pill-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+  .session-pill-time { flex-shrink: 0; font-size: 13px; font-weight: 800; }
+  .session-pill-end { flex-shrink: 0; min-height: 44px; padding: 0 18px; border-radius: 999px; background: var(--accent); color: var(--on-accent);
+                      font-size: 14px; font-weight: 800; }
+
+  /* ---------- Shared app additions: fandom switcher, sign-in bar ---------- */
+  .fandom-switch { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-height: 44px; border-radius: 16px; max-width: 100%; }
+  .fandom-switch .t-app { display: inline-flex; align-items: center; gap: 6px; }
+  .fandom-row { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 20px;
+                background: var(--surface-sunken); color: var(--text); text-align: left; }
+  .fandom-row[aria-current="true"] { box-shadow: inset 0 0 0 2px var(--inverse); }
+  .fandom-dot { width: 18px; height: 18px; border-radius: 999px; flex-shrink: 0; }
+  .signin-bar { display: flex; align-items: center; gap: 8px; border-radius: 999px; padding: 6px 6px 6px 16px; background: var(--inverse); color: var(--on-inverse);
+                font-size: 13px; font-weight: 700; box-shadow: var(--shadow-control); }
+  .signin-bar .btn { min-height: 40px; background: var(--accent); color: var(--on-accent); }
+  .signin-bar .icon-btn { width: 40px; height: 40px; background: transparent; color: var(--on-inverse); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo, useCallback, useContext, createContext } = React;
+
+window.storage = {
+  async get(key) {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    return { key, value: raw, shared: false };
+  },
+  async set(key, value) {
+    localStorage.setItem(key, value);
+    return { key, value, shared: false };
+  },
+};
+
+function Search(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>; }
+function ExternalLink(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>; }
+function ChevronDown(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||18} height={props.size||18} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>; }
+function ChevronUp(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||18} height={props.size||18} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>; }
+function X(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>; }
+function SlidersHorizontal(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg>; }
+function RefreshCw(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>; }
+function Download(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill="none" stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>; }
+function StarIcon(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill={props.fill||"none"} stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>; }
+function Megaphone(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||16} height={props.size||16} viewBox="0 0 24 24" fill={props.fill||"none"} stroke={props.color||"currentColor"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>; }
+
+const STATUS_LABELS = ['Unread', 'Read', 'DNF', 'Skipped', 'Not Interested', 'Currently Reading', 'TBR', 'Paused'];
+const STATUS_UNREAD=0, STATUS_READ=1, STATUS_DNF=2, STATUS_SKIPPED=3, STATUS_NOTINT=4, STATUS_READING=5, STATUS_TBR=6, STATUS_PAUSED=7;
+const DNR_LABELS = { 0: '—', 1: 'Writing/Pacing', 2: 'Content', 3: 'Other', 10: 'Content/Tags', 11: 'Content/Ships', 12: 'Content/Category' };
+const DNR_WRITING=1, DNR_CONTENT=2, DNR_OTHER=3;
+const DNR_LEGACY_CONTENT_TAGS=10, DNR_LEGACY_CONTENT_SHIPS=11, DNR_LEGACY_CONTENT_CAT=12;
+
+const STATUS_CODE_MAP = { '': 0, 'Read': 1, 'DNF': 2, 'Skipped': 3, 'Not Interested': 4, 'Currently Reading': 5, 'TBR': 6, 'Paused': 7 };
+// "Content/Ships" only exists in multi mode, exactly as in the original single- and multi-ship apps.
+const DNR_CODE_MAP_SINGLE = { '': 0, 'Writing/Pacing': 1, 'Content': 2, 'Other': 3, 'Content/Tags': 10, 'Content/Category': 12 };
+const DNR_CODE_MAP_MULTI = { ...DNR_CODE_MAP_SINGLE, 'Content/Ships': 11 };
+
+const ENJOYMENT_MULTIPLIER = { 0: 1, 1: 0.25, 2: 0.6, 3: 1, 4: 1.5, 5: 2 };
+
+// Styling constants (Shelf Life v2). Values are CSS custom properties defined in the <style> block,
+// so light/dark mode and the fandom accent switch there. Same keys as before.
+const COLORS = {
+  paper: 'var(--bg)', paperCard: 'var(--surface)', ink: 'var(--text)', inkSoft: 'var(--text-secondary)',
+  maroon: 'var(--accent-text)', maroonDark: 'var(--accent-text)', gold: 'var(--accent)', line: 'var(--track)',
+  readGreen: 'var(--lime)', dnfPurple: 'var(--coral)', skipOrange: 'var(--grey-block)', notIntGray: 'var(--text-secondary)',
+  tbrBlue: 'var(--pink)', recGold: 'var(--inverse)', pausedSlate: 'var(--text-secondary)',
+};
+const STATUS_COLOR = {
+  [STATUS_UNREAD]: 'var(--accent)', [STATUS_READ]: 'var(--lime)', [STATUS_DNF]: 'var(--coral)',
+  [STATUS_SKIPPED]: 'var(--grey-block)', [STATUS_NOTINT]: 'var(--inverse)', [STATUS_READING]: 'var(--blue)',
+  [STATUS_TBR]: 'var(--pink)', [STATUS_PAUSED]: 'var(--grey-block)',
+};
+// Text colour to use on each status fill (contrast-checked).
+const STATUS_ON = {
+  [STATUS_UNREAD]: 'var(--on-accent)', [STATUS_READ]: '#111111', [STATUS_DNF]: '#111111',
+  [STATUS_SKIPPED]: 'var(--on-grey)', [STATUS_NOTINT]: 'var(--on-inverse)', [STATUS_READING]: '#FFFFFF',
+  [STATUS_TBR]: '#111111', [STATUS_PAUSED]: 'var(--on-grey)',
+};
+// Dot colours in the status picker (decorative; the label always carries the meaning).
+const STATUS_DOT = {
+  [STATUS_UNREAD]: 'var(--accent)', [STATUS_READ]: 'var(--lime)', [STATUS_DNF]: 'var(--coral)',
+  [STATUS_SKIPPED]: '#C9C9D3', [STATUS_NOTINT]: 'var(--inverse)', [STATUS_READING]: 'var(--blue)',
+  [STATUS_TBR]: 'var(--pink)', [STATUS_PAUSED]: '#9A9AA8',
+};
+
+const WORD_BUCKETS = [
+  ['Under 15k', 0, 15000], ['15k–30k', 15000, 30000], ['30k–60k', 30000, 60000],
+  ['60k–120k', 60000, 120000], ['120k–250k', 120000, 250000], ['250k+', 250000, Infinity],
+];
+
+const CLIENT_ID = '765897251156-e328g6jmu2obg8l0855km0iqsps062n5.apps.googleusercontent.com';
+const SHEET_TAB = 'Data List';
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+const PAGE_SIZE = 25;
+
+// ---------- Fandoms (the list itself is at the top of the file) ----------
+const FANDOMS = window.FANDOMS;
+const FANDOM_BY_ID = window.FANDOM_BY_ID;
+const KEYS = window.FICS_KEYS;
+const isMulti = (f) => f && f.mode === 'multi';
+const fandomLine = (f) => (f.pairing && !isMulti(f) ? `${f.name} · ${f.pairing}` : f.name);
+// Every per-fandom saved value lives under "<fandom id>:<name>".
+const fkey = (fid, name) => `${fid}:${name}`;
+const FandomCtx = createContext({ fandom: null, multi: false });
+
+function workIdFromLink(link, rowNumber) {
+  const m = /\/works\/(\d+)/.exec(link || '');
+  if (m) return m[1];
+  // Deterministic fallback for missing/malformed links — stable across renders,
+  // unlike a random value which would change every time and break identity lookups.
+  return 'row-' + rowNumber;
+}
+
+function lsGet(key, fallback) {
+  try { const v = window.localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+}
+function lsSet(key, value) {
+  try {
+    if (value === null || value === undefined) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) { /* storage unavailable: this setting just won't survive a reload */ }
+}
+function lsGetRaw(key) { try { return window.localStorage.getItem(key); } catch (e) { return null; } }
+function lsSetRaw(key, v) { try { if (v === null) window.localStorage.removeItem(key); else window.localStorage.setItem(key, v); } catch (e) {} }
+
+// ---------- Google sign-in (shared by every fandom) ----------
+// One token for all fandoms. It is renewed silently when it expires (GIS requestAccessToken with
+// prompt ''). If the browser blocks that, a small "Sign in to sync" bar appears instead; the app
+// keeps working from its cached data and queues every change until then.
+function useGoogleAuth() {
+  const readCached = () => {
+    const c = lsGet(KEYS.token, null);
+    return c && c.token && c.expiresAt && Date.now() < c.expiresAt ? c : null;
+  };
+  const [accessToken, setAccessToken] = useState(() => { const c = readCached(); return c ? c.token : null; });
+  const [authError, setAuthError] = useState('');
+  const [gisReady, setGisReady] = useState(false);
+  // Someone who has signed in before starts out "reconnecting" until the silent attempt finishes,
+  // so the "Sign in to sync" bar never flashes up while Google's script is still loading.
+  const [renewing, setRenewing] = useState(() => !readCached() && !!lsGetRaw(KEYS.signedIn));
+  const tokenClientRef = useRef(null);
+  const tokenRef = useRef(accessToken);
+  const expiryTimerRef = useRef(null);
+  const renewTimerRef = useRef(null);
+  const explicitRef = useRef(false);
+
+  const clearToken = () => {
+    lsSet(KEYS.token, null);
+    tokenRef.current = null;
+    setAccessToken(null);
+  };
+  const stopRenewing = () => { clearTimeout(renewTimerRef.current); setRenewing(false); };
+  const scheduleExpiry = (expiresAt) => {
+    clearTimeout(expiryTimerRef.current);
+    expiryTimerRef.current = setTimeout(() => { clearToken(); trySilent(); }, Math.max(0, expiresAt - Date.now()));
+  };
+  // Silent renewal: only for someone who has signed in here before. Never shows a full-screen prompt.
+  const trySilent = () => {
+    if (!tokenClientRef.current || !lsGetRaw(KEYS.signedIn) || tokenRef.current) { if (tokenClientRef.current) setRenewing(false); return; }
+    explicitRef.current = false;
+    setRenewing(true);
+    clearTimeout(renewTimerRef.current);
+    renewTimerRef.current = setTimeout(() => setRenewing(false), 10000); // give up quietly; the bar takes over
+    try { tokenClientRef.current.requestAccessToken({ prompt: '' }); } catch (e) { stopRenewing(); }
+  };
+  const trySilentRef = useRef(trySilent);
+  trySilentRef.current = trySilent;
+
+  useEffect(() => {
+    const cached = readCached();
+    if (cached) scheduleExpiry(cached.expiresAt); else lsSet(KEYS.token, null);
+
+    let cancelled = false;
+    // Offline, Google's script may never load: stop "reconnecting" after a while and show the bar.
+    const gisTimeout = setTimeout(() => { if (!tokenClientRef.current) setRenewing(false); }, 8000);
+    function init() {
+      if (cancelled) return;
+      if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+        setTimeout(init, 200);
+        return;
+      }
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SHEETS_SCOPE,
+        callback: (resp) => {
+          stopRenewing();
+          if (resp.error) { if (explicitRef.current) setAuthError(resp.error_description || resp.error); return; }
+          setAuthError('');
+          const expiresAt = Date.now() + (Number(resp.expires_in) || 3600) * 1000 - 60000; // 1 min safety margin
+          lsSet(KEYS.token, { token: resp.access_token, expiresAt });
+          lsSetRaw(KEYS.signedIn, '1');
+          tokenRef.current = resp.access_token;
+          setAccessToken(resp.access_token);
+          scheduleExpiry(expiresAt);
+        },
+        error_callback: (err) => {
+          // popup blocked or closed: fall back to the "Sign in to sync" bar
+          stopRenewing();
+          if (explicitRef.current && err && err.type !== 'popup_closed') setAuthError(err.message || String(err.type || 'Sign-in failed'));
+        },
+      });
+      setGisReady(true);
+      if (!tokenRef.current) trySilentRef.current();
+    }
+    init();
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return;
+      const c = readCached();
+      if (!c && tokenRef.current) clearToken(); // expired while the phone was asleep
+      if (!tokenRef.current) trySilentRef.current();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { cancelled = true; clearTimeout(gisTimeout); document.removeEventListener('visibilitychange', onVis); clearTimeout(expiryTimerRef.current); };
+  }, []);
+
+  const signIn = () => {
+    setAuthError('');
+    explicitRef.current = true;
+    if (tokenClientRef.current) tokenClientRef.current.requestAccessToken();
+  };
+  const signOut = () => {
+    if (tokenRef.current && window.google) {
+      window.google.accounts.oauth2.revoke(tokenRef.current, () => {});
+    }
+    lsSetRaw(KEYS.signedIn, null);
+    clearTimeout(expiryTimerRef.current);
+    clearToken();
+  };
+  // A 401 from Sheets: drop the token and try to renew it quietly.
+  const invalidate = useCallback(() => { clearToken(); trySilentRef.current(); }, []);
+  const signedInBefore = !!lsGetRaw(KEYS.signedIn);
+
+  return { accessToken, gisReady, signIn, signOut, invalidate, authError, renewing, signedInBefore };
+}
+
+function ficFromRow(headerIndex, row, rowNumber, multi) {
+  const get = (name) => { const i = headerIndex[name]; return i !== undefined ? (row[i] || '') : ''; };
+  const title = get('Title').trim();
+  if (!title) return null;
+  const link = get('Link').trim();
+  const tagsRaw = get('Tags').trim();
+  const shipsRaw = multi ? get('Relationships').trim() : '';
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const ships = shipsRaw ? shipsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const authorsRaw = get('Author').trim();
+  const authors = authorsRaw ? authorsRaw.split(',').map(a => a.trim()).filter(Boolean) : [];
+  const dnrTagsRaw = get('DNR Tags').trim();
+  const dnrTags = dnrTagsRaw ? dnrTagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const dnrShipsRaw = multi ? get('DNR Ships').trim() : '';
+  const dnrShips = dnrShipsRaw ? dnrShipsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const dnrCategory = get('DNR Category').trim().toUpperCase() === 'Y';
+  const enjoymentRaw = parseInt(get('Enjoyment').trim(), 10);
+  const enjoyment = (enjoymentRaw >= 1 && enjoymentRaw <= 5) ? enjoymentRaw : 0;
+  const num = (v) => { const n = parseInt(String(v).replace(/,/g, ''), 10); return isNaN(n) ? 0 : n; };
+  const dnrCodes = multi ? DNR_CODE_MAP_MULTI : DNR_CODE_MAP_SINGLE;
+
+  return {
+    id: workIdFromLink(link, rowNumber),
+    rowNumber,
+    title, link,
+    date: get('Date Published').trim(),
+    rating: get('Rating (S)').trim(),
+    category: get('Category').trim() || 'Uncategorized',
+    words: num(get('Words')),
+    chapters: num(get('Chapters')) || 1,
+    comments: num(get('Comments')),
+    kudos: num(get('Kudos')),
+    bookmarks: num(get('Bookmarks')),
+    hits: num(get('Hits')),
+    tags, ships,
+    authors,
+    summary: get('Summary').trim(),
+    status: STATUS_CODE_MAP[get('Status').trim()] ?? 0,
+    dnr: dnrCodes[get('DNR Reason').trim()] ?? 0,
+    dnrTags, dnrShips, dnrCategory,
+    enjoyment,
+    dateStarted: normIsoDate(get('Date Started')),
+    dateRead: normIsoDate(get('Date Read')),
+    lastRead: get('Last Read').trim(),
+    chaptersRead: num(get('Chapters Read')),
+    timesRead: num(get('Times Read')),
+    kg: get('K').trim().toUpperCase() === 'Y',
+    bk: get('B').trim().toUpperCase() === 'Y',
+    recommended: get('Recommended').trim().toUpperCase() === 'Y',
+    recSource: get('Rec Source').trim(),
+    syncState: 'idle', // 'idle' | 'queued' | 'syncing' | 'error'
+    syncError: '',
+  };
+}
+
+function colLetter(index) {
+  let s = '', i = index + 1;
+  while (i > 0) {
+    const rem = (i - 1) % 26;
+    s = String.fromCharCode(65 + rem) + s;
+    i = Math.floor((i - 1) / 26);
+  }
+  return s;
+}
+
+function authFetchError(status, body) {
+  const err = new Error(`HTTP ${status}: ${body.slice(0, 300)}`);
+  if (status === 401) err.isAuthError = true;
+  return err;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out — check your connection and try again.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------- Google Sheets calls. Every call names its sheet, so a write that is still in flight
+// when you switch fandom can only ever reach its own fandom's sheet. ----------
+async function sheetsApiGet(accessToken, sheetId) {
+  const range = encodeURIComponent(`'${SHEET_TAB}'!A1:ZZ`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 20000);
+  if (!res.ok) {
+    const body = await res.text();
+    throw authFetchError(res.status, body);
+  }
+  const data = await res.json();
+  return data.values || [];
+}
+
+// Status column only (B) — used to count Currently Reading fics for the fandom switcher.
+async function sheetsApiGetStatusColumn(accessToken, sheetId) {
+  const range = encodeURIComponent(`'${SHEET_TAB}'!B2:B`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 15000);
+  if (!res.ok) throw authFetchError(res.status, await res.text());
+  const data = await res.json();
+  return (data.values || []).map(r => (r[0] || '').trim());
+}
+
+async function sheetsApiWriteCell(accessToken, sheetId, rowNumber, colLetterVal, value) {
+  const range = encodeURIComponent(`'${SHEET_TAB}'!${colLetterVal}${rowNumber}`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`;
+  const res = await fetchWithTimeout(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: [[value]] }),
+  }, 15000);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw authFetchError(res.status, errBody);
+  }
+}
+
+async function sheetsApiWriteStatus(accessToken, sheetId, rowNumber, { status, dnr, kg, bk, dnrTags, dnrShips, dnrCategory, enjoyment }, cols) {
+  const range = encodeURIComponent(`'${SHEET_TAB}'!B${rowNumber}:E${rowNumber}`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`;
+  const statusLabel = status === STATUS_UNREAD ? '' : STATUS_LABELS[status];
+  const dnrLabel = dnr ? DNR_LABELS[dnr] : '';
+  const body = { values: [[statusLabel, dnrLabel, kg ? 'Y' : '', bk ? 'Y' : '']] };
+  const res = await fetchWithTimeout(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }, 15000);
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw authFetchError(res.status, errBody);
+  }
+
+  if (cols.dnrTags) {
+    await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.dnrTags, (dnrTags && dnrTags.length) ? dnrTags.join(', ') : '');
+  }
+  if (cols.dnrShips) { // multi mode only (single mode never looks for this column)
+    await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.dnrShips, (dnrShips && dnrShips.length) ? dnrShips.join(', ') : '');
+  }
+  if (cols.dnrCategory) {
+    await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.dnrCategory, dnrCategory ? 'Y' : '');
+  }
+  if (cols.enjoyment) {
+    await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.enjoyment, ((status === STATUS_READ || status === STATUS_READING || status === STATUS_PAUSED) && enjoyment) ? String(enjoyment) : '');
+  }
+}
+
+async function sheetsApiWriteRecommendation(accessToken, sheetId, rowNumber, { recommended, recSource }, cols) {
+  if (!cols.rec && !cols.recSource) {
+    throw new Error('Could not find a "Recommended" or "Rec Source" column in your sheet — check the exact column header spelling (case-sensitive).');
+  }
+  if (cols.rec) await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.rec, recommended ? 'Y' : '');
+  if (cols.recSource) await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.recSource, recommended ? (recSource || '') : '');
+}
+
+// <reading-feature>
+// Reading-history tracking: dates, chapters, the append-only "Reading Log" tab.
+// Everything here is plain JS (no React) so the logic can be tested on its own.
+const READING_FIELD_KEYS = ['dateStarted', 'dateRead', 'lastRead', 'chaptersRead', 'timesRead'];
+const READING_COL_NAMES = { dateStarted: 'Date Started', dateRead: 'Date Read', lastRead: 'Last Read', chaptersRead: 'Chapters Read', timesRead: 'Times Read' };
+const STATUS_WRITE_KEYS = ['status', 'dnr', 'kg', 'bk', 'dnrTags', 'dnrShips', 'dnrCategory', 'enjoyment'];
+const REC_WRITE_KEYS = ['recommended', 'recSource'];
+const LOG_TAB = 'Reading Log';
+const LOG_TZ = 'Australia/Melbourne';
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "Today" and timestamps are always Melbourne time, whatever timezone the device is in.
+function melbourneNow(d) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LOG_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d || new Date());
+  const p = {};
+  parts.forEach(x => { if (x.type !== 'literal') p[x.type] = x.value; });
+  const date = `${p.year}-${p.month}-${p.day}`;
+  return { date, stamp: `${date} ${p.hour}:${p.minute}` };
+}
+
+// Dates are written as plain-text ISO, but a cell someone typed by hand can come back in
+// the sheet's display format — accept the common ones, and keep anything else as typed.
+function normIsoDate(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s); // d/m/yyyy (Australian order)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  m = /^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/.exec(s);
+  if (m) {
+    const mon = m[2][0].toUpperCase() + m[2].slice(1).toLowerCase();
+    if (MONTH_MAP[mon] !== undefined) {
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      return `${y}-${String(MONTH_MAP[mon] + 1).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    }
+  }
+  return s;
+}
+
+function fmtShortDate(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return iso || '';
+  const thisYear = melbourneNow().date.slice(0, 4);
+  return `${parseInt(m[3], 10)} ${MONTH_NAMES[parseInt(m[2], 10) - 1]}${m[1] === thisYear ? '' : ' ' + m[1]}`;
+}
+
+function ordinal(n) {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th'}`;
+}
+
+// The dates line shown under the Kudos/Bookmarked/Enjoyment summary in the expanded card.
+function readingDatesLine(status, f) {
+  const parts = [];
+  if (status === STATUS_READ) {
+    if (f.dateStarted) parts.push(`Started ${fmtShortDate(f.dateStarted)}`);
+    if (f.dateRead) parts.push(`Read ${fmtShortDate(f.dateRead)}`);
+    if (f.timesRead >= 2) parts.push(`Read ${f.timesRead}×`);
+  } else if (status === STATUS_READING || status === STATUS_PAUSED) {
+    if (f.dateStarted) parts.push(`Started ${fmtShortDate(f.dateStarted)}`);
+    if (f.timesRead >= 2) parts.push(`${ordinal(f.timesRead)} read`);
+  } else if (status === STATUS_DNF) {
+    if (f.dateStarted) parts.push(`Started ${fmtShortDate(f.dateStarted)}`);
+  }
+  return parts.join(' · ');
+}
+
+// Given a fic's state before a change and the patch being applied, work out which reading
+// fields change as a side effect and which Reading Log events to append. Pure function.
+// `now` = { date: 'YYYY-MM-DD', stamp: 'YYYY-MM-DD HH:MM' } in Melbourne time.
+function computeReadingTransition(prev, patch, now) {
+  const fields = {};
+  const events = [];
+  const isActive = (s) => s === STATUS_READING || s === STATUS_PAUSED;
+  const readNo = (n) => n || 1;
+  const from = prev.status;
+  const to = patch.status === undefined ? from : patch.status;
+
+  // No status change: a chapter-count update on an in-progress fic logs a Progress event
+  // (the once-per-day cap is applied when the event is queued).
+  if (to === from) {
+    if (patch.chaptersRead !== undefined && isActive(from)) {
+      events.push({ event: 'Progress', chaptersRead: patch.chaptersRead, readNumber: readNo(prev.timesRead) });
+    }
+    return { fields, events };
+  }
+
+  const chaptersNow = patch.chaptersRead !== undefined ? patch.chaptersRead : (prev.chaptersRead || 0);
+
+  if (to === STATUS_READING) {
+    if (from === STATUS_READ) { // Read again
+      const n = (prev.timesRead || 1) + 1;
+      Object.assign(fields, { timesRead: n, chaptersRead: 0, dateStarted: now.date, lastRead: now.stamp });
+      events.push({ event: 'Re-read started', chaptersRead: 0, readNumber: n });
+    } else if (from === STATUS_PAUSED) { // Resume
+      fields.lastRead = now.stamp;
+      events.push({ event: 'Progress', chaptersRead: chaptersNow, readNumber: readNo(prev.timesRead) });
+    } else { // Start reading
+      Object.assign(fields, { dateStarted: now.date, lastRead: now.stamp });
+      events.push({ event: 'Started', chaptersRead: chaptersNow, readNumber: readNo(prev.timesRead) });
+    }
+  } else if (to === STATUS_PAUSED) {
+    fields.lastRead = now.stamp;
+    events.push({ event: 'Paused', chaptersRead: chaptersNow, readNumber: readNo(prev.timesRead) });
+  } else if (to === STATUS_READ) {
+    const times = prev.timesRead || 1;
+    Object.assign(fields, { dateRead: now.date, lastRead: now.stamp, timesRead: times });
+    // Finishing a fic that was in progress means everything published so far is read.
+    if (isActive(from) && prev.chapters && chaptersNow < prev.chapters) fields.chaptersRead = prev.chapters;
+    events.push({ event: 'Finished', chaptersRead: fields.chaptersRead !== undefined ? fields.chaptersRead : chaptersNow, readNumber: times });
+  } else if (to === STATUS_DNF) {
+    fields.lastRead = now.stamp;
+    events.push({ event: 'DNF', chaptersRead: chaptersNow, readNumber: readNo(prev.timesRead) });
+  }
+  return { fields, events };
+}
+
+async function sheetsApiWriteReadingFields(accessToken, sheetId, rowNumber, values, keys, cols) {
+  const data = [];
+  for (const k of keys) {
+    const col = cols && cols[k];
+    if (!col) continue; // column missing from the sheet: skip this field silently
+    let v = values[k];
+    if (v === undefined || v === null || (k === 'timesRead' && !v)) v = '';
+    data.push({ range: `'${SHEET_TAB}'!${col}${rowNumber}`, values: [[v]] });
+  }
+  if (!data.length) return;
+  // RAW so Sheets keeps dates/timestamps as the exact text written, never reinterpreting them.
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values:batchUpdate`;
+  const res = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ valueInputOption: 'RAW', data }),
+  }, 15000);
+  if (!res.ok) throw authFetchError(res.status, await res.text());
+}
+
+async function sheetsApiGetLog(accessToken, sheetId) {
+  const range = encodeURIComponent(`'${LOG_TAB}'!A:F`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 20000);
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 400 && /unable to parse range|not found/i.test(body)) return null; // tab missing
+    throw authFetchError(res.status, body);
+  }
+  const data = await res.json();
+  return data.values || [];
+}
+
+async function sheetsApiAppendLog(accessToken, sheetId, rows) {
+  const range = encodeURIComponent(`'${LOG_TAB}'!A:F`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+  const res = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: rows }),
+  }, 15000);
+  if (!res.ok) {
+    const body = await res.text();
+    const err = authFetchError(res.status, body);
+    if (res.status === 400 && /unable to parse range|not found/i.test(body)) err.isLogTabMissing = true;
+    throw err;
+  }
+}
+
+function logEventRow(fic, ev, now) {
+  return [now.stamp, fic.link, fic.title, ev.event, ev.chaptersRead ?? '', ev.readNumber ?? ''];
+}
+// </reading-feature>
+
+// <outbox>
+// Every change (status, rating, kudos/bookmark, chapters, recommendation, Reading Log rows,
+// session events) is saved here first, per fandom, in the order it was made, then written to the
+// sheet whenever a token is available. Nothing is dropped: an item only leaves the outbox once the
+// sheet has accepted it. Nothing is duplicated: cell writes set values (writing twice is harmless),
+// and a Reading Log row that was tried before is checked against the log before it is sent again.
+function outboxLoad(fid) { const q = lsGet(fkey(fid, 'outbox'), []); return Array.isArray(q) ? q : []; }
+function outboxUpdate(fid, fn) { const next = fn(outboxLoad(fid)); lsSet(fkey(fid, 'outbox'), next.length ? next : null); return next; }
+function newLogId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`; }
+function outboxAdd(fid, item, id) {
+  const it = { ...item, id: id || newLogId(), tries: 0 };
+  outboxUpdate(fid, q => [...q, it]);
+  return it.id;
+}
+function outboxRemove(fid, id) { outboxUpdate(fid, q => q.filter(it => it.id !== id)); }
+function outboxDropLogRows(fid) { outboxUpdate(fid, q => q.filter(it => it.type !== 'log')); }
+function logRowKey(r) { return [r[0], r[1], r[3], r[4], r[5]].map(v => String(v === undefined || v === null ? '' : v).trim()).join('|'); }
+
+// The queued values replayed over freshly loaded (or cached) rows, so waiting changes stay visible.
+function applyOutbox(fics, fid) {
+  const q = outboxLoad(fid).filter(it => it.type === 'cells');
+  if (!q.length) return fics;
+  const byId = new Map(fics.map((f, i) => [f.id, i]));
+  const out = fics.slice();
+  for (const it of q) {
+    const i = byId.get(it.ficId);
+    if (i !== undefined) out[i] = { ...out[i], ...it.values };
+  }
+  return out;
+}
+
+const outboxChains = {};
+// api = { writeCells(item), appendRows(rows), readLog(), onLogMissing() }
+function flushOutbox(fid, api) {
+  const run = (outboxChains[fid] || Promise.resolve()).then(() => (
+    navigator.locks && navigator.locks.request
+      ? navigator.locks.request(`fics-outbox-${fid}`, () => flushOutboxNow(fid, api)) // one tab at a time
+      : flushOutboxNow(fid, api)));
+  outboxChains[fid] = run.catch(() => {});
+  return run;
+}
+async function flushOutboxNow(fid, api) {
+  const sentKey = fkey(fid, 'outbox-sent');
+  const sent = new Set(lsGet(sentKey, []));
+  const markDone = (ids) => {
+    ids.forEach(id => sent.add(id));
+    lsSet(sentKey, [...sent].slice(-1000));
+    outboxUpdate(fid, q => q.filter(it => !sent.has(it.id)));
+  };
+  const bumpTries = (ids) => outboxUpdate(fid, q => q.map(it => (ids.includes(it.id) ? { ...it, tries: it.tries + 1 } : it)));
+  const drop = (ids) => outboxUpdate(fid, q => q.filter(it => !ids.includes(it.id)));
+  let written = 0;
+  for (let guard = 0; guard < 5000; guard++) {
+    const q = outboxUpdate(fid, x => x.filter(it => !sent.has(it.id)));
+    if (!q.length) return { written, left: 0 };
+    const head = q[0];
+    if (head.type === 'cells') {
+      bumpTries([head.id]);
+      try { await api.writeCells(head); } catch (e) { return { error: e, item: head, left: q.length }; }
+      markDone([head.id]); written++;
+      continue;
+    }
+    // A run of Reading Log rows goes out as one append, in order.
+    let group = [];
+    for (const it of q) { if (it.type !== 'log') break; group.push(it); }
+    // A row tried before may have reached the sheet even though the request failed (for example a
+    // timeout after Google saved it), so check the log before sending those rows again.
+    if (group.some(it => it.tries > 0)) {
+      let rows;
+      try { rows = await api.readLog(); } catch (e) { return { error: e, item: group[0], left: q.length }; }
+      if (rows === null) { drop(group.map(it => it.id)); api.onLogMissing(); continue; } // no Reading Log tab: skipped silently
+      const have = new Set(rows.map(logRowKey));
+      const already = group.filter(it => it.tries > 0 && have.has(logRowKey(it.row))).map(it => it.id);
+      if (already.length) { markDone(already); group = group.filter(it => !already.includes(it.id)); }
+      if (!group.length) continue;
+    }
+    const ids = group.map(it => it.id);
+    bumpTries(ids);
+    try {
+      await api.appendRows(group.map(it => it.row));
+    } catch (e) {
+      if (e.isLogTabMissing) { drop(ids); api.onLogMissing(); continue; }
+      return { error: e, item: group[0], left: q.length };
+    }
+    markDone(ids); written += ids.length;
+  }
+  return { written, left: outboxLoad(fid).length };
+}
+// </outbox>
+
+// <session-feature>
+// Reading-session timer. Adds "Session started" / "Session ended" rows to the Reading Log, in the
+// same columns and timestamp format as the other events. Shelf Life pairs a start with the next end
+// for the same fic on the same day, ignores sessions over 6 hours and ignores a start with no end,
+// so an end is only ever written for a session whose start was written first.
+// Plain JS (no React) so the logic can be tested on its own.
+const SESSION_MAX_MS = 6 * 60 * 60 * 1000;
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// The active session lives in localStorage (per fandom) so it survives reloads, closed tabs and app switches.
+function loadActiveSession(fid) {
+  const s = lsGet(fkey(fid, 'reading-session'), null);
+  return s && s.ficId && s.link && typeof s.startMs === 'number' && s.startStamp && s.startDate ? s : null;
+}
+function saveActiveSession(fid, s) { lsSet(fkey(fid, 'reading-session'), s); }
+
+// A new session for `fic` (already Currently Reading), plus the Reading Log row that opens it.
+function planSessionStart(fic, nowMs) {
+  const now = melbourneNow(new Date(nowMs));
+  const session = {
+    ficId: fic.id, link: fic.link, title: fic.title,
+    startMs: nowMs, startStamp: now.stamp, startDate: now.date,
+    startChapters: fic.chaptersRead || 0, readNumber: fic.timesRead || 1,
+    startEventId: newLogId(),
+  };
+  return { session, row: [now.stamp, fic.link, fic.title, 'Session started', session.startChapters, session.readNumber] };
+}
+function sessionEndRow(session, chapters, endStamp) {
+  return [endStamp, session.link, session.title, 'Session ended', chapters, session.readNumber];
+}
+// Over 6 hours old, or started on an earlier (Melbourne) day: never auto-ended, the reader is asked.
+function isSessionForgotten(session, nowMs) {
+  return nowMs - session.startMs > SESSION_MAX_MS || melbourneNow(new Date(nowMs)).date !== session.startDate;
+}
+// Elapsed time always comes from the stored start, so it keeps counting while the app is closed.
+function formatElapsed(ms) {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  if (mins < 1) return '<1 min';
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)} h ${mins % 60} min`;
+}
+function sessionDayLabel(session) {
+  const [y, m, d] = session.startDate.split('-').map(Number);
+  return `${DAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${d} ${MONTH_NAMES[m - 1]}`;
+}
+// Allowed end times for a forgotten session: the start's day, no more than 6 hours after the start,
+// and not in the future. Stamps are 'YYYY-MM-DD HH:MM', so they compare correctly as text.
+function sessionEndBounds(session, nowMs) {
+  const caps = [melbourneNow(new Date(session.startMs + SESSION_MAX_MS)).stamp, `${session.startDate} 23:59`, melbourneNow(new Date(nowMs)).stamp];
+  let max = caps.reduce((a, b) => (b < a ? b : a));
+  if (max < session.startStamp) max = session.startStamp;
+  return { min: session.startStamp.slice(11), max: max.slice(11) };
+}
+function sessionEndStampFor(session, hhmm, nowMs) {
+  if (!/^\d{2}:\d{2}$/.test(hhmm || '')) return null;
+  const { min, max } = sessionEndBounds(session, nowMs);
+  if (hhmm < min || hhmm > max) return null;
+  return `${session.startDate} ${hhmm}`;
+}
+// </session-feature>
+
+// ---------- Per-fandom data cache (IndexedDB) ----------
+const IDB_NAME = 'fics-cache', IDB_STORE = 'fandoms';
+let idbPromise = null;
+function idb() {
+  if (idbPromise) return idbPromise;
+  idbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error('IndexedDB unavailable')); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }).catch(e => { idbPromise = null; throw e; });
+  return idbPromise;
+}
+async function cacheGet(fid) {
+  try {
+    const db = await idb();
+    return await new Promise((resolve, reject) => {
+      const r = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(fid);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    });
+  } catch (e) { return null; }
+}
+async function cachePut(fid, value) {
+  try {
+    const db = await idb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(value, fid);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) { /* cache is a convenience; the sheet is the source of truth */ }
+}
+const isShelfStatus = (s) => s === STATUS_READING || s === STATUS_PAUSED;
+
+function useSheetFics(fandom, auth) {
+  const fid = fandom.id;
+  const sheetId = fandom.sheetId;
+  const multi = isMulti(fandom);
+  const { accessToken, invalidate } = auth;
+  const [fics, setFics] = useState([]);
+  const [status, setStatus] = useState('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [lastSynced, setLastSynced] = useState(null);
+  const [cacheState, setCacheState] = useState('loading'); // 'loading' | 'hit' | 'miss'
+  const [readingMissing, setReadingMissing] = useState([]);
+  const [logMissing, setLogMissing] = useState(false);
+  const [queueCount, setQueueCount] = useState(() => outboxLoad(fid).length);
+  const ficsRef = useRef([]);
+  const colsRef = useRef({ reading: {} });
+  const progressKeysRef = useRef(new Set());
+  const logMissingRef = useRef(false);
+  const tokenRef = useRef(accessToken);
+  const freshRef = useRef(false);    // the sheet itself has been read in this visit (row numbers verified)
+  const errRef = useRef(null);       // { itemId, ficId, message } for a cell write the sheet refused
+  const stepPendingRef = useRef({}); // ficId -> { chaptersRead, lastRead, timer } waiting on the tap debounce
+  const updateFicRef = useRef(null);
+  const saveCacheTimer = useRef(null);
+  useEffect(() => { ficsRef.current = fics; }, [fics]);
+
+  const commitFics = (list) => { ficsRef.current = list; setFics(list); };
+
+  // Per-fic sync badge, worked out from the outbox: queued (no token), syncing, or error.
+  const syncStates = useCallback(() => {
+    const q = outboxLoad(fid);
+    setQueueCount(q.length);
+    const pending = new Set(q.filter(it => it.type === 'cells').map(it => it.ficId));
+    const err = errRef.current && q.some(it => it.id === errRef.current.itemId) ? errRef.current : null;
+    if (!err) errRef.current = null;
+    const online = !!tokenRef.current;
+    setFics(prev => {
+      const next = prev.map(f => {
+        let s = 'idle', e = '';
+        if (err && err.ficId === f.id) { s = 'error'; e = err.message; }
+        else if (pending.has(f.id)) s = online ? 'syncing' : 'queued';
+        return (f.syncState === s && f.syncError === e) ? f : { ...f, syncState: s, syncError: e };
+      });
+      ficsRef.current = next;
+      return next;
+    });
+  }, [fid]);
+
+  const markLogMissing = () => {
+    logMissingRef.current = true;
+    outboxDropLogRows(fid);
+    setLogMissing(true);
+  };
+
+  // Write everything waiting, in order. Needs a token and a fresh read of the sheet this visit.
+  const flush = useCallback(async () => {
+    const tok = tokenRef.current;
+    if (!tok || !freshRef.current) { syncStates(); return; }
+    syncStates();
+    const api = {
+      writeCells: async (item) => {
+        const fic = ficsRef.current.find(f => f.id === item.ficId);
+        if (!fic) throw new Error('This fic is no longer in your sheet, so this change can’t be saved.');
+        const cols = colsRef.current;
+        if (item.status) await sheetsApiWriteStatus(tok, sheetId, fic.rowNumber, item.values, cols);
+        if (item.readingKeys && item.readingKeys.length) await sheetsApiWriteReadingFields(tok, sheetId, fic.rowNumber, item.values, item.readingKeys, cols.reading);
+        if (item.rec) await sheetsApiWriteRecommendation(tok, sheetId, fic.rowNumber, item.values, cols);
+      },
+      appendRows: (rows) => sheetsApiAppendLog(tok, sheetId, rows),
+      readLog: () => sheetsApiGetLog(tok, sheetId),
+      onLogMissing: markLogMissing,
+    };
+    let res;
+    try { res = await flushOutbox(fid, api); } catch (e) { res = { error: e, item: null }; }
+    if (res && res.error) {
+      if (res.error.isAuthError) { errRef.current = null; invalidate(); }
+      else if (res.item && res.item.type === 'cells') errRef.current = { itemId: res.item.id, ficId: res.item.ficId, message: res.error.message || String(res.error) };
+      else errRef.current = null; // a Reading Log row stays queued and is retried on the next sync
+    } else errRef.current = null;
+    syncStates();
+  }, [fid, sheetId, syncStates, invalidate]);
+
+  // Open instantly from the last copy of this fandom's data.
+  useEffect(() => {
+    let alive = true;
+    cacheGet(fid).then(c => {
+      if (!alive || freshRef.current) return;
+      if (c && Array.isArray(c.fics)) {
+        colsRef.current = c.cols || { reading: {} };
+        progressKeysRef.current = new Set(c.progressKeys || []);
+        logMissingRef.current = !!c.logMissing;
+        setReadingMissing(c.readingMissing || []);
+        setLogMissing(!!c.logMissing);
+        setLastSynced(c.savedAt ? new Date(c.savedAt) : null);
+        commitFics(applyOutbox(c.fics, fid));
+        setCacheState('hit');
+        syncStates();
+      } else setCacheState('miss');
+    });
+    return () => { alive = false; };
+  }, [fid]);
+
+  // Keep the cache in step with what's on screen (including changes still waiting to sync).
+  const saveCacheNow = useCallback(() => {
+    clearTimeout(saveCacheTimer.current);
+    const list = ficsRef.current;
+    if (!list.length) return;
+    cachePut(fid, {
+      fics: list.map(f => (f.syncState === 'idle' && !f.syncError ? f : { ...f, syncState: 'idle', syncError: '' })),
+      cols: colsRef.current, progressKeys: [...progressKeysRef.current],
+      readingMissing, logMissing: logMissingRef.current,
+      savedAt: lastSynced ? lastSynced.getTime() : Date.now(),
+    });
+  }, [fid, readingMissing, lastSynced]);
+  useEffect(() => {
+    if (!fics.length) return;
+    lsSet(fkey(fid, 'summary'), { reading: fics.filter(f => isShelfStatus(f.status)).length, at: Date.now() });
+    clearTimeout(saveCacheTimer.current);
+    saveCacheTimer.current = setTimeout(saveCacheNow, 1200);
+  }, [fics, saveCacheNow]);
+
+  // Reads the Reading Log once per load so "one Progress row per fic per day" holds across
+  // devices. A missing tab just turns logging off; any other failure is ignored here.
+  const loadReadingLog = async (tok) => {
+    try {
+      const rows = await sheetsApiGetLog(tok, sheetId);
+      if (rows === null) { markLogMissing(); return; }
+      logMissingRef.current = false;
+      setLogMissing(false);
+      rows.forEach(r => {
+        if (r[3] === 'Progress') progressKeysRef.current.add(`${r[1]}|${String(r[0] || '').slice(0, 10)}`);
+      });
+    } catch (e) { /* ignore */ }
+  };
+
+  const fetchFics = useCallback(async () => {
+    const tok = tokenRef.current;
+    if (!tok) return;
+    setStatus('loading');
+    setErrorMsg('');
+    try {
+      await (outboxChains[fid] || Promise.resolve()); // let writes already on their way land first
+      const rows = await sheetsApiGet(tok, sheetId);
+      if (rows.length < 2) throw new Error('No data found in the "Data List" tab.');
+      const header = rows[0];
+      const headerIndex = {};
+      header.forEach((h, i) => { headerIndex[h.trim()] = i; });
+      const col = (name) => (headerIndex[name] !== undefined ? colLetter(headerIndex[name]) : null);
+      const reading = {};
+      const missing = [];
+      READING_FIELD_KEYS.forEach(k => {
+        const name = READING_COL_NAMES[k];
+        reading[k] = col(name);
+        if (reading[k] === null) missing.push(name);
+      });
+      colsRef.current = {
+        dnrTags: col('DNR Tags'), dnrShips: multi ? col('DNR Ships') : null, dnrCategory: col('DNR Category'),
+        enjoyment: col('Enjoyment'), rec: col('Recommended'), recSource: col('Rec Source'), reading,
+      };
+      setReadingMissing(missing);
+      const parsedFics = [];
+      for (let i = 1; i < rows.length; i++) {
+        const fic = ficFromRow(headerIndex, rows[i], i + 1, multi);
+        if (fic) parsedFics.push(fic);
+      }
+      freshRef.current = true;
+      commitFics(applyOutbox(parsedFics, fid));
+      setCacheState('hit');
+      setLastSynced(new Date());
+      setStatus('success');
+      await loadReadingLog(tok);
+      flush();
+    } catch (e) {
+      if (e.isAuthError) { setStatus('idle'); invalidate(); return; }
+      setErrorMsg(e.message || String(e));
+      setStatus('error');
+    }
+  }, [fid, sheetId, multi, flush, invalidate]);
+
+  // Token arrives (or comes back after expiring): read the sheet once per visit, then write the queue.
+  useEffect(() => {
+    tokenRef.current = accessToken;
+    if (accessToken) { if (!freshRef.current) fetchFics(); else flush(); }
+    else syncStates();
+  }, [accessToken]);
+  useEffect(() => {
+    const onOnline = () => flush();
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') { Object.keys(stepPendingRef.current).forEach(flushStep); saveCacheNow(); }
+      else flush();
+    };
+    const onStorage = (e) => { if (e.key === fkey(fid, 'outbox')) syncStates(); };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [flush, saveCacheNow]);
+  // Leaving this fandom: save pending chapter taps and the cache straight away.
+  useEffect(() => () => { Object.keys(stepPendingRef.current).forEach(flushStep); saveCacheNow(); }, [saveCacheNow]);
+
+  const queueLogRows = (rows, firstId) => {
+    if (logMissingRef.current) return;
+    rows.forEach((row, i) => outboxAdd(fid, { type: 'log', row }, i === 0 ? firstId : undefined));
+  };
+
+  const updateFic = useCallback(async (ficId, patchIn, opts) => {
+    // Read the current fic from a ref (kept in sync via useEffect) rather than as a
+    // side effect inside a setState updater — updater functions must stay pure.
+    const prevFic = ficsRef.current.find(f => f.id === ficId);
+    if (!prevFic) return false;
+
+    // Chapter taps still waiting on the debounce are saved together with this change.
+    let patch = patchIn;
+    const pend = stepPendingRef.current[ficId];
+    if (pend) {
+      clearTimeout(pend.timer);
+      delete stepPendingRef.current[ficId];
+      patch = { chaptersRead: pend.chaptersRead, lastRead: pend.lastRead, ...patchIn };
+    }
+
+    const now = melbourneNow();
+    const transition = computeReadingTransition(prevFic, patch, now);
+    // A reading session records its own chapter count ("Session ended"), so its save skips the Progress row.
+    if (opts && opts.skipLogEvents) transition.events = [];
+
+    // Same writes, in the same order, as before: status columns, then reading fields, then log rows.
+    const merged = { ...prevFic, ...patch, ...transition.fields };
+    const readingKeys = READING_FIELD_KEYS.filter(k => (k in patch) || (k in transition.fields));
+    const statusWrite = STATUS_WRITE_KEYS.some(k => k in patch);
+    if (statusWrite || readingKeys.length) {
+      const values = {};
+      [...STATUS_WRITE_KEYS, ...READING_FIELD_KEYS].forEach(k => { values[k] = merged[k]; });
+      outboxAdd(fid, { type: 'cells', ficId, values, status: statusWrite, readingKeys });
+    }
+    // Progress is logged at most once per fic per day (keyed on link + Melbourne date).
+    const rows = [];
+    for (const ev of transition.events) {
+      if (ev.event === 'Progress') {
+        const key = `${merged.link}|${now.date}`;
+        if (progressKeysRef.current.has(key)) continue;
+        progressKeysRef.current.add(key);
+      }
+      rows.push(logEventRow(merged, ev, now));
+    }
+    queueLogRows(rows);
+
+    commitFics(ficsRef.current.map(f => f.id === ficId ? { ...f, ...patch, ...transition.fields } : f));
+    flush();
+    return true;
+  }, [fid, flush]);
+  useEffect(() => { updateFicRef.current = updateFic; }, [updateFic]);
+
+  // +1 / -1 chapter. The count updates on screen straight away; the save (and the
+  // once-a-day Progress log row) happens after the taps settle, so rapid tapping is one save.
+  const flushStep = (ficId) => {
+    const p = stepPendingRef.current[ficId];
+    if (!p) return;
+    clearTimeout(p.timer);
+    delete stepPendingRef.current[ficId];
+    updateFicRef.current && updateFicRef.current(ficId, { chaptersRead: p.chaptersRead, lastRead: p.lastRead });
+  };
+  const stepChapters = useCallback((ficId, delta) => {
+    const fic = ficsRef.current.find(f => f.id === ficId);
+    if (!fic) return;
+    const pend = stepPendingRef.current[ficId];
+    const current = pend ? pend.chaptersRead : fic.chaptersRead;
+    const next = Math.min(Math.max(fic.chapters, current), Math.max(0, current + delta));
+    if (next === current) return;
+    const stamp = melbourneNow().stamp;
+    if (pend) clearTimeout(pend.timer);
+    stepPendingRef.current[ficId] = { chaptersRead: next, lastRead: stamp, timer: setTimeout(() => flushStep(ficId), 700) };
+    commitFics(ficsRef.current.map(f => f.id === ficId ? { ...f, chaptersRead: next, lastRead: stamp } : f));
+  }, []);
+
+  const updateRecommendation = useCallback(async (ficId, patch) => {
+    const prevFic = ficsRef.current.find(f => f.id === ficId);
+    if (!prevFic) return;
+    const merged = { ...prevFic, ...patch };
+    const values = {};
+    REC_WRITE_KEYS.forEach(k => { values[k] = merged[k]; });
+    outboxAdd(fid, { type: 'cells', ficId, values, rec: true });
+    commitFics(ficsRef.current.map(f => f.id === ficId ? { ...f, ...patch } : f));
+    flush();
+  }, [fid, flush]);
+
+  // "Tap to retry" re-sends the queue from the change that failed.
+  const retrySync = useCallback(() => { errRef.current = null; flush(); }, [flush]);
+  // Gives up on the change the sheet refused, then reloads so the card shows what the sheet holds.
+  const discardFailed = useCallback(() => {
+    if (errRef.current) outboxRemove(fid, errRef.current.itemId);
+    errRef.current = null;
+    if (tokenRef.current) { freshRef.current = false; fetchFics(); } else syncStates();
+  }, [fid, fetchFics, syncStates]);
+  const refresh = useCallback(() => { if (tokenRef.current) fetchFics(); }, [fetchFics]);
+
+  // Used by the session timer: its Reading Log rows join the same ordered queue.
+  const addLogRow = useCallback((row, id) => { queueLogRows([row], id); syncStates(); flush(); }, [flush, syncStates]);
+  const removeLogRow = useCallback((id) => { outboxRemove(fid, id); syncStates(); }, [fid, syncStates]);
+
+  return { fics, status, errorMsg, lastSynced, cacheState, refresh, updateFic, retrySync, discardFailed, updateRecommendation, stepChapters,
+    readingMissing, logMissing, queueCount, flush, addLogRow, removeLogRow };
+}
+
+function computePercentileRanks(values) {
+  const n = values.length;
+  const sorted = values.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
+  const ranks = new Array(n);
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && sorted[j + 1][0] === sorted[i][0]) j++;
+    const avgRank = (i + j) / 2;
+    for (let k = i; k <= j; k++) ranks[sorted[k][1]] = avgRank;
+    i = j + 1;
+  }
+  const denom = n > 1 ? n - 1 : 1;
+  return ranks.map(r => (r / denom) * 100);
+}
+
+const ANONYMOUS_AUTHORS = new Set(['anonymous', 'orphan_account', 'orphan account']);
+function realAuthors(fic) { return fic.authors.filter(a => !ANONYMOUS_AUTHORS.has(a.trim().toLowerCase())); }
+
+const MONTH_MAP = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+function parseFicDate(str) {
+  if (!str) return 0;
+  const s = str.trim();
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/.exec(s);
+  if (m) {
+    const day = parseInt(m[1], 10);
+    const month = MONTH_MAP[m[2]];
+    let year = parseInt(m[3], 10);
+    if (year < 100) year += 2000;
+    if (month === undefined) return 0;
+    return new Date(year, month, day).getTime();
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? 0 : t;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// SHARED SCORING: Shelf Life copies this.
+// One scoring module for every fandom. Plain JS, no React: computeScores(fics, { ships }).
+//   ships: false → single-pairing scoring (exactly the original Hollanov / Drarry apps)
+//   ships: true  → multi-ship scoring (exactly the original ASOIAF app): adds the ships
+//                  dimension (Relationships column, DNR Ships, legacy "Content/Ships").
+// Each fic needs: status, dnr, kg, bk, kudos, hits, chapters, bookmarks, comments, tags,
+// category, authors, enjoyment, dnrTags, dnrCategory (and ships, dnrShips when ships is on).
+// Returns { status, dnr, kg, bk, pScore, qScore }, arrays in the same order as `fics`.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+function computeScores(fics, options) {
+  const useShips = !!(options && options.ships);
+  if (fics.length === 0) return null;
+  const n = fics.length;
+
+  const status = fics.map(f => f.status);
+  const dnr = fics.map(f => f.dnr);
+  const kg = fics.map(f => f.kg);
+  const bk = fics.map(f => f.bk);
+
+  // Q-Score: popularity, from percentile ranks within this fandom's list.
+  const khVals = fics.map(f => f.kudos / (f.hits + 1));
+  const kchVals = fics.map(f => f.kudos / Math.max(1, f.chapters));
+  const bmVals = fics.map(f => f.bookmarks);
+  const coVals = fics.map(f => f.comments);
+  const pctlKH = computePercentileRanks(khVals);
+  const pctlKCH = computePercentileRanks(kchVals);
+  const pctlBM = computePercentileRanks(bmVals);
+  const pctlCO = computePercentileRanks(coVals);
+  const qScore = new Array(n);
+  for (let i = 0; i < n; i++) {
+    qScore[i] = (pctlKH[i] * 1 + pctlKCH[i] * 1 + pctlBM[i] * 1.5 + pctlCO[i] * 1) / 4.5;
+  }
+
+  // Full vocabulary — every tag/ship/category/author that appears, no top-N cap
+  const tagStats = new Map(); // tag -> {readW, dnf, notInt}
+  const shipStats = new Map();
+  const catStats = new Map();
+  const authorStats = new Map();
+
+  function bump(map, key, field, amount) {
+    if (!map.has(key)) map.set(key, { readW: 0, dnf: 0, notInt: 0 });
+    map.get(key)[field] += amount;
+  }
+
+  // Given a fic and its DNF/Not Interested reason, work out which specific tags/ships/
+  // category should take the penalty. The unified "Content" reason only penalizes
+  // whatever the user explicitly isolated; the legacy single-dimension reasons
+  // (kept for fics marked before this was merged) fall back to blanket-penalizing
+  // that whole dimension, exactly as they did before.
+  function contentPenaltyTargets(f, d) {
+    const fShips = useShips ? f.ships : [];
+    if (d === DNR_CONTENT) {
+      return {
+        tags: (f.dnrTags && f.dnrTags.length) ? f.dnrTags : [],
+        ships: (useShips && f.dnrShips && f.dnrShips.length) ? f.dnrShips : [],
+        category: !!f.dnrCategory,
+      };
+    }
+    if (d === DNR_LEGACY_CONTENT_TAGS) return { tags: f.tags, ships: [], category: false };
+    if (useShips && d === DNR_LEGACY_CONTENT_SHIPS) return { tags: [], ships: fShips, category: false };
+    if (d === DNR_LEGACY_CONTENT_CAT) return { tags: [], ships: [], category: true };
+    if (d === DNR_OTHER) return { tags: f.tags, ships: fShips, category: true };
+    return { tags: [], ships: [], category: false }; // Writing/Pacing or unset: no content penalty
+  }
+  // Author affinity is protected from any "Content" reason (old or new) since that's
+  // about tags/ships/category, not the writing — but IS penalized by Writing/Pacing
+  // and Other, matching the flipped logic used for tags.
+  function authorExcluded(d) {
+    return d === DNR_CONTENT || d === DNR_LEGACY_CONTENT_TAGS || (useShips && d === DNR_LEGACY_CONTENT_SHIPS) || d === DNR_LEGACY_CONTENT_CAT;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const s = status[i], d = dnr[i], f = fics[i];
+    if (s === STATUS_READ) {
+      const w = 1 + 0.5 * (kg[i] ? 1 : 0) + 1 * (bk[i] ? 1 : 0);
+      for (const t of f.tags) bump(tagStats, t, 'readW', w);
+      if (useShips) for (const sh of f.ships) bump(shipStats, sh, 'readW', w);
+      bump(catStats, f.category, 'readW', w);
+      // Enjoyment (1-5, optional) only scales the author's signal — tags, ships, and
+      // category keep using the plain kudos/bookmark weight regardless of rating.
+      const authorW = w * (ENJOYMENT_MULTIPLIER[f.enjoyment] ?? 1);
+      for (const a of realAuthors(f)) bump(authorStats, a, 'readW', authorW);
+    } else if (s === STATUS_DNF) {
+      const targets = contentPenaltyTargets(f, d);
+      for (const t of targets.tags) bump(tagStats, t, 'dnf', 1);
+      for (const sh of targets.ships) bump(shipStats, sh, 'dnf', 1);
+      if (targets.category) bump(catStats, f.category, 'dnf', 1);
+      if (!authorExcluded(d)) for (const a of realAuthors(f)) bump(authorStats, a, 'dnf', 1);
+    } else if (s === STATUS_NOTINT) {
+      const targets = contentPenaltyTargets(f, d);
+      for (const t of targets.tags) bump(tagStats, t, 'notInt', 1);
+      for (const sh of targets.ships) bump(shipStats, sh, 'notInt', 1);
+      if (targets.category) bump(catStats, f.category, 'notInt', 1);
+      if (!authorExcluded(d)) for (const a of realAuthors(f)) bump(authorStats, a, 'notInt', 1);
+    }
+  }
+
+  function affinityOf(map, key, dnfWeight) {
+    const s = map.get(key);
+    if (!s) return { affinity: 0, totalRated: 0 };
+    const totalRated = s.readW + s.dnf + s.notInt;
+    const rawAffinity = totalRated === 0 ? 0 : (s.readW - s.dnf * dnfWeight - s.notInt) / totalRated;
+    // Confidence shrinkage: a tag/ship/category/author with little evidence behind it
+    // gets pulled toward neutral, so one early DNF can't swing it as hard as a
+    // pattern backed by a dozen ratings. C=3 means ~1 rating -> 1/4 strength,
+    // ~3 ratings -> half strength, approaching full strength as evidence grows.
+    const C = 3;
+    const confidence = totalRated / (totalRated + C);
+    const affinity = rawAffinity * confidence;
+    return { affinity, totalRated };
+  }
+
+  const pScore = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const f = fics[i];
+
+    // Strength-weighted average — a tag/ship you feel strongly about (positive
+    // or negative) pulls harder than ones you're merely neutral on, instead of
+    // every rated item counting equally and averaging strong signals away.
+    let tSum = 0, tWeight = 0, tCount = 0;
+    for (const t of f.tags) {
+      const { affinity, totalRated } = affinityOf(tagStats, t, 0.5);
+      if (totalRated > 0) { tCount++; tSum += affinity * Math.abs(affinity); tWeight += Math.abs(affinity); }
+    }
+    const tagHasData = tCount > 0;
+    const ad = tWeight > 0 ? tSum / tWeight : 0;
+
+    let sSum = 0, sWeight = 0, sCount = 0;
+    if (useShips) {
+      for (const sh of f.ships) {
+        const { affinity, totalRated } = affinityOf(shipStats, sh, 0.15); // ships forgive a DNF more than tags do
+        if (totalRated > 0) { sCount++; sSum += affinity * Math.abs(affinity); sWeight += Math.abs(affinity); }
+      }
+    }
+    const shipHasData = sCount > 0;
+    const af = sWeight > 0 ? sSum / sWeight : 0;
+
+    const { affinity: aeRaw, totalRated: catTotalRated } = affinityOf(catStats, f.category, 0.5);
+    const catHasData = catTotalRated > 0;
+    const ae = Math.max(0, aeRaw);
+
+    let auSum = 0, auWeight = 0, auCount = 0;
+    for (const a of realAuthors(f)) {
+      const { affinity, totalRated } = affinityOf(authorStats, a, 0.5);
+      if (totalRated > 0) { auCount++; auSum += affinity * Math.abs(affinity); auWeight += Math.abs(affinity); }
+    }
+    const authorHasData = auCount > 0;
+    const auRaw = auWeight > 0 ? auSum / auWeight : 0;
+    const au = Math.max(0, auRaw);
+
+    // Combine the active dimensions into ONE weighted-average adjustment instead of
+    // multiplying independent (1 + weight*affinity) factors together. Multiplying let
+    // two negative signals compound harder than either alone intended.
+    let weightSum = 0, adjSum = 0;
+    if (tagHasData) { weightSum += 0.6; adjSum += 0.6 * ad; }
+    if (shipHasData) { weightSum += 0.6; adjSum += 0.6 * af; }
+    if (catHasData) { weightSum += 0.3; adjSum += 0.3 * ae; }
+    if (authorHasData) { weightSum += 0.9; adjSum += 0.9 * au; }
+    const combinedAdjustment = weightSum > 0 ? adjSum / weightSum : 0;
+
+    pScore[i] = qScore[i] * (1 + combinedAdjustment);
+  }
+
+  return { status, dnr, kg, bk, pScore, qScore };
+}
+// ═════════════════════════════ end of SHARED SCORING ═════════════════════════════
+
+function useComputedScores(fics, multi) {
+  return useMemo(() => computeScores(fics, { ships: multi }), [fics, multi]);
+}
+
+// ---------- Shelf Life v2 presentation layer (styling only; behaviour unchanged) ----------
+function Check(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||14} height={props.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>; }
+function Heart(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||14} height={props.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg>; }
+function BookmarkIcon(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||14} height={props.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>; }
+function Eye(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||14} height={props.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>; }
+function ListIcon(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||20} height={props.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>; }
+function BookIcon(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||20} height={props.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z"/></svg>; }
+function UserIcon(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||20} height={props.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>; }
+function PauseIcon(props) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size||12} height={props.size||12} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>; }
+
+// Bottom sheet shell. Rendered into <body> so it floats above the list.
+function Sheet({ label, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const prev = document.activeElement;
+    if (ref.current) ref.current.focus();
+    return () => { if (prev && prev.focus) prev.focus(); };
+  }, []);
+  return ReactDOM.createPortal(
+    <div className="scrim" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-label={label} className="sheet" tabIndex={-1} ref={ref}
+        onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Escape' && onClose) onClose(); }}>
+        <div className="handle" aria-hidden="true"></div>
+        {children}
+      </section>
+    </div>,
+    document.body
+  );
+}
+
+function StatusPill({ status, dnr }) {
+  if (status === STATUS_UNREAD) return null;
+  const reason = (status === STATUS_DNF || status === STATUS_NOTINT) && dnr ? DNR_LABELS[dnr] : '';
+  let pill;
+  if (status === STATUS_DNF) pill = <span className="pill" style={{ background: 'var(--inverse)', color: 'var(--on-inverse)' }}>DNF</span>;
+  else if (status === STATUS_NOTINT) pill = <span className="pill" style={{ background: 'var(--text-secondary)', color: 'var(--surface)' }}>Not interested</span>;
+  else if (status === STATUS_READ) pill = <span className="pill" style={{ background: 'var(--lime)', color: '#111111' }}><Check size={11} />Read</span>;
+  else if (status === STATUS_READING) pill = <span className="pill" style={{ background: 'var(--blue)', color: '#FFFFFF' }}>Reading</span>;
+  else if (status === STATUS_PAUSED) pill = <span className="pill" style={{ background: 'var(--grey-block)', color: 'var(--on-grey)' }}><PauseIcon size={10} />Paused</span>;
+  else if (status === STATUS_TBR) pill = <span className="pill" style={{ background: 'var(--pink)', color: '#111111' }}>TBR</span>;
+  else pill = <span className="pill" style={{ background: 'var(--grey-block)', color: 'var(--on-grey)' }}>{STATUS_LABELS[status]}</span>;
+  return (<>{pill}{reason && <span className="t-meta" style={{ fontWeight: 700 }}>{reason}</span>}</>);
+}
+
+function Chip({ active, onClick, children, color, textColor }) {
+  return (
+    <button onClick={onClick} aria-pressed={!!active} className="chip"
+      style={active ? { background: color || 'var(--inverse)', color: textColor || 'var(--on-inverse)' } : undefined}>
+      {active && <Check size={14} />}{children}
+    </button>
+  );
+}
+
+// panelOnly + initialPending let the Currently-reading shelf open the very same Read / DNF
+// flows (rating, kudos, bookmark, Content picker) without the status chips around them.
+function StatusPicker({ ficId, status, dnr, dnrTags, dnrShips, dnrCategory, enjoyment, kg, bk, tags, ships, category, onUpdate, reading, canAddDateRead, initialPending, panelOnly, onDone, onCancel, title, authors }) {
+  const { multi } = useContext(FandomCtx);
+  const shipList = multi ? (ships || []) : [];
+  const [pendingStatus, setPendingStatus] = useState(initialPending ?? null);
+  const [addingDate, setAddingDate] = useState(false);
+  const [dateVal, setDateVal] = useState('');
+  const [pendingDnrCode, setPendingDnrCode] = useState(null);
+  const [pickedDnrTags, setPickedDnrTags] = useState([]);
+  const [pickedDnrShips, setPickedDnrShips] = useState([]);
+  const [pickedDnrCategory, setPickedDnrCategory] = useState(false);
+  const [pendingRating, setPendingRating] = useState(initialPending === STATUS_READ ? (enjoyment || 0) : 0);
+
+  const setStatus = (s) => {
+    setPendingDnrCode(null);
+    if (s === STATUS_READ) { setPendingRating(enjoyment || 0); setPendingStatus(STATUS_READ); }
+    else if (s === STATUS_DNF || s === STATUS_NOTINT) setPendingStatus(s);
+    else {
+      const keepEnjoyment = s === STATUS_READING || s === STATUS_PAUSED;
+      onUpdate(ficId, { status: s, dnr: 0, dnrTags: [], dnrShips: [], dnrCategory: false, ...(keepEnjoyment ? {} : { enjoyment: 0 }) });
+      setPendingStatus(null);
+    }
+  };
+  const toggleRating = (n) => setPendingRating(prev => prev === n ? 0 : n);
+  const confirmRead = (kgVal, bkVal) => { onUpdate(ficId, { status: STATUS_READ, kg: kgVal, bk: bkVal, enjoyment: pendingRating }); setPendingStatus(null); onDone && onDone(); };
+  const confirmDnr = (reasonCode) => {
+    if (reasonCode === DNR_CONTENT) {
+      setPendingDnrCode(reasonCode);
+      setPickedDnrTags(dnrTags && dnrTags.length ? dnrTags : []);
+      setPickedDnrShips(multi && dnrShips && dnrShips.length ? dnrShips : []);
+      setPickedDnrCategory(!!dnrCategory);
+    } else {
+      onUpdate(ficId, { status: pendingStatus, dnr: reasonCode, dnrTags: [], dnrShips: [], dnrCategory: false });
+      setPendingStatus(null);
+      onDone && onDone();
+    }
+  };
+  const toggleDnrTag = (t) => setPickedDnrTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  const toggleDnrShip = (sh) => setPickedDnrShips(prev => prev.includes(sh) ? prev.filter(x => x !== sh) : [...prev, sh]);
+  const anyPicked = pickedDnrTags.length > 0 || pickedDnrShips.length > 0 || pickedDnrCategory;
+  const confirmDnrContent = () => {
+    onUpdate(ficId, { status: pendingStatus, dnr: DNR_CONTENT, dnrTags: pickedDnrTags, dnrShips: pickedDnrShips, dnrCategory: pickedDnrCategory });
+    setPendingStatus(null); setPendingDnrCode(null); setPickedDnrTags([]); setPickedDnrShips([]); setPickedDnrCategory(false);
+    onDone && onDone();
+  };
+
+  // UI glue: closes the sheet without saving (same as the old inline panel's Cancel).
+  const closeSheet = () => { if (panelOnly) { onCancel && onCancel(); } else { setPendingStatus(null); setPendingDnrCode(null); } };
+  const byLine = authors && authors.length ? authors.join(', ') : '';
+  const reasonStyle = (code) => (pendingDnrCode === code
+    ? { background: 'var(--coral)', color: '#111111', fontWeight: 800 }
+    : { background: 'var(--surface-sunken)', color: 'var(--text)' });
+  const kbStyle = { Neither: { background: 'var(--surface-sunken)', color: 'var(--text)' }, Kudos: { background: 'var(--pink)', color: '#111111' },
+    Bookmarked: { background: 'var(--lime)', color: '#111111' }, Both: { background: 'var(--inverse)', color: 'var(--on-inverse)' } };
+
+  return (
+    <div>
+      {!panelOnly && (
+        <div className="panel stack" style={{ gap: 10, marginTop: 4 }}>
+          <div className="t-label">Status</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+            {[STATUS_UNREAD, STATUS_TBR, STATUS_READING, STATUS_PAUSED, STATUS_READ, STATUS_DNF, STATUS_SKIPPED, STATUS_NOTINT].map(s => {
+              const on = status === s;
+              return (
+                <button key={s} onClick={() => setStatus(s)} aria-pressed={on} className="btn"
+                  style={on ? { background: 'var(--inverse)', color: 'var(--on-inverse)' } : { background: 'var(--surface)', color: 'var(--text)' }}>
+                  {on ? <Check size={14} /> : <span className="dot" style={{ background: STATUS_DOT[s] }} aria-hidden="true"></span>}
+                  {STATUS_LABELS[s]}
+                </button>
+              );
+            })}
+          </div>
+          {status !== STATUS_UNREAD && pendingStatus === null && (
+            <p className="t-caption" style={{ margin: 0 }}>
+              {status === STATUS_READ && `Kudos: ${kg ? 'Yes' : 'No'} · Bookmarked: ${bk ? 'Yes' : 'No'}${enjoyment ? ` · Enjoyment: ${enjoyment}/5` : ''}`}
+              {(status === STATUS_DNF || status === STATUS_NOTINT) && dnr > 0 && (() => {
+                if (dnr === DNR_CONTENT) {
+                  const parts = [];
+                  if (dnrTags && dnrTags.length) parts.push(`Tags: ${dnrTags.join(', ')}`);
+                  if (multi && dnrShips && dnrShips.length) parts.push(`Ships: ${dnrShips.join(', ')}`);
+                  if (dnrCategory) parts.push('Category');
+                  return `Reason: Content${parts.length ? ` (${parts.join('; ')})` : ''}`;
+                }
+                if (dnr === DNR_LEGACY_CONTENT_TAGS) return `Reason: ${DNR_LABELS[dnr]}${dnrTags && dnrTags.length ? ` (${dnrTags.join(', ')})` : ''}`;
+                return `Reason: ${DNR_LABELS[dnr]}`;
+              })()}
+            </p>
+          )}
+          {pendingStatus === null && readingDatesLine(status, reading || {}) && (
+            <p className="t-caption" style={{ margin: 0 }}>{readingDatesLine(status, reading || {})}</p>
+          )}
+          {pendingStatus === null && status === STATUS_READ && !(reading && reading.dateRead) && canAddDateRead && (
+            addingDate ? (
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <input type="date" value={dateVal} max={melbourneNow().date} onChange={e => setDateVal(e.target.value)} aria-label="Date read"
+                  style={{ minHeight: 44, border: 0, borderRadius: 999, padding: '0 14px', background: 'var(--surface)', color: 'var(--text)', fontSize: 14, fontWeight: 600 }} />
+                <button disabled={!/^\d{4}-\d{2}-\d{2}$/.test(dateVal)}
+                  onClick={() => { onUpdate(ficId, { dateRead: dateVal }); setAddingDate(false); setDateVal(''); }}
+                  className="btn btn-primary">Save</button>
+                <button onClick={() => { setAddingDate(false); setDateVal(''); }} className="btn btn-text">Cancel</button>
+              </div>
+            ) : (
+              <div><button onClick={() => setAddingDate(true)} className="link">Add date read</button></div>
+            )
+          )}
+        </div>
+      )}
+
+      {pendingStatus !== null && (
+        <Sheet label={pendingStatus === STATUS_READ ? 'Mark as read' : 'Why are you marking this?'} onClose={closeSheet}>
+          <div>
+            <div className="t-meta" style={{ fontWeight: 700 }}>
+              {pendingStatus === STATUS_READ ? 'Finished' : pendingStatus === STATUS_DNF ? 'Marking DNF' : 'Marking Not interested'}{byLine ? ` · ${byLine}` : ''}
+            </div>
+            <h2 className="t-sheet" style={{ marginTop: 2 }}>{pendingStatus === STATUS_READ ? <span className="hl">{title}</span> : title}</h2>
+          </div>
+
+          {pendingStatus === STATUS_READ && (
+            <>
+              <div className="stack" style={{ gap: 8 }}>
+                <div className="row" style={{ fontSize: 15, fontWeight: 800 }}><span className="step">1</span>How much did you enjoy it?&nbsp;<span className="t-meta">Optional</span></div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 6 }}>
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <button key={n} onClick={() => toggleRating(n)} aria-label={`Enjoyment ${n} of 5`} aria-pressed={pendingRating === n} className="tile num">{n}</button>
+                  ))}
+                </div>
+                <div className="row t-caption" style={{ justifyContent: 'space-between' }}>
+                  <span>1 · didn't enjoy it</span><span>3 · neutral</span><span>5 · loved it</span>
+                </div>
+              </div>
+              <div className="stack" style={{ gap: 8 }}>
+                <div className="row" style={{ fontSize: 15, fontWeight: 800 }}><span className="step">2</span>Left kudos? Bookmarked?&nbsp;<span className="t-meta">Tap to save</span></div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                  {[[false, false, 'Neither'], [true, false, 'Kudos'], [false, true, 'Bookmarked'], [true, true, 'Both']].map(([kv, bv, label]) => (
+                    <button key={label} onClick={() => confirmRead(kv, bv)} className="btn btn-lg" style={kbStyle[label]}>{label}</button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {(pendingStatus === STATUS_DNF || pendingStatus === STATUS_NOTINT) && (
+            <>
+              <div className="stack" style={{ gap: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 800 }}>Why?</div>
+                <div className="row" style={{ gap: 8 }}>
+                  {[DNR_WRITING, DNR_CONTENT, DNR_OTHER].map(code => (
+                    <button key={code} onClick={() => confirmDnr(code)} aria-pressed={pendingDnrCode === code} className="btn grow"
+                      style={{ minHeight: 48, padding: '0 8px', ...reasonStyle(code) }}>
+                      {pendingDnrCode === code && <Check size={14} />}{DNR_LABELS[code]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {pendingDnrCode === DNR_CONTENT && (
+                <div className="panel stack" style={{ gap: 10 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800 }}>What was the issue? <span className="t-meta">{multi ? 'Pick any mix of tags, ships or category' : 'Pick any mix of tags or category'}</span></div>
+                  {tags.length > 0 && (
+                    <div className="stack" style={{ gap: 6 }}>
+                      <div className="t-caps">Tags</div>
+                      <div className="wrap" style={{ gap: 6 }}>
+                        {tags.map(t => (
+                          <button key={t} onClick={() => toggleDnrTag(t)} aria-pressed={pickedDnrTags.includes(t)} className="pick">
+                            {pickedDnrTags.includes(t) && <Check size={12} />}{t}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {shipList.length > 0 && (
+                    <div className="stack" style={{ gap: 6 }}>
+                      <div className="t-caps">Ships</div>
+                      <div className="wrap" style={{ gap: 6 }}>
+                        {shipList.map(sh => (
+                          <button key={sh} onClick={() => toggleDnrShip(sh)} aria-pressed={pickedDnrShips.includes(sh)} className="pick">
+                            {pickedDnrShips.includes(sh) && <Check size={12} />}{sh}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="stack" style={{ gap: 6 }}>
+                    <div className="t-caps">Category</div>
+                    <div><button onClick={() => setPickedDnrCategory(v => !v)} aria-pressed={pickedDnrCategory} className="pick">
+                      {pickedDnrCategory && <Check size={12} />}{category}
+                    </button></div>
+                  </div>
+                </div>
+              )}
+              {pendingDnrCode === DNR_CONTENT && (
+                <div className="stack" style={{ gap: 6 }}>
+                  <button onClick={confirmDnrContent} disabled={!anyPicked} className="btn btn-primary btn-xl">
+                    Confirm {pendingStatus === STATUS_DNF ? 'DNF' : 'Not interested'}
+                  </button>
+                  {!anyPicked && (
+                    <p className="t-caption" style={{ margin: 0, textAlign: 'center' }}>Select at least one item — otherwise pick a different reason above.</p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {panelOnly && pendingStatus !== null
+            ? <button onClick={onCancel} className="btn btn-text">Cancel</button>
+            : <button onClick={closeSheet} className="btn btn-text">Cancel</button>}
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+function RecommendToggle({ ficId, recommended, recSource, onUpdate }) {
+  const [picking, setPicking] = useState(false);
+  const toggle = () => {
+    if (recommended) onUpdate(ficId, { recommended: false, recSource: '' });
+    else setPicking(true);
+  };
+  const pick = (source) => {
+    onUpdate(ficId, { recommended: true, recSource: source });
+    setPicking(false);
+  };
+  return (
+    <div>
+      <button onClick={toggle} className="icon-btn" aria-label={recommended ? 'Remove recommendation mark' : 'Mark as recommended'}
+        style={recommended ? { background: 'var(--accent)', color: 'var(--on-accent)' } : { color: 'var(--text-secondary)' }}>
+        <Megaphone size={18} color="currentColor" fill={recommended ? 'currentColor' : 'none'} />
+      </button>
+      {picking && (
+        <div className="popover" role="group" aria-label="Where was it recommended?">
+          <button onClick={() => pick('Social Media')} className="btn btn-secondary">Social Media</button>
+          <button onClick={() => pick('AO3')} className="btn btn-secondary">AO3</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SyncNote({ fic, onRetry, onDiscard }) {
+  if (fic.syncState === 'syncing') return <span className="t-caption">Saving to sheet…</span>;
+  if (fic.syncState === 'queued') return <span className="t-caption">Waiting to sync</span>;
+  if (fic.syncState === 'error') return (
+    <div className="stack">
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => onRetry(fic.id)} className="link" style={{ color: 'var(--error-text)', padding: 0, textAlign: 'left', textDecoration: 'underline' }}>
+          Save failed — tap to retry
+        </button>
+        {onDiscard && (<button onClick={() => onDiscard(fic.id)} className="link" style={{ color: 'var(--text-secondary)', padding: 0 }}>Discard change</button>)}
+      </div>
+      {fic.syncError && (<span className="t-caption" style={{ color: 'var(--error-text)' }}>{fic.syncError}</span>)}
+    </div>
+  );
+  return null;
+}
+
+function FicCard({ fic, scores, ficIndex, onUpdate, onRetry, onDiscard, onUpdateRecommendation, expanded, onToggleExpand, canAddDateRead, sessionApi }) {
+  const { multi } = useContext(FandomCtx);
+  const status = scores.status[ficIndex];
+  const pScore = scores.pScore[ficIndex];
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const TAG_PREVIEW = 6;
+  const SUMMARY_PREVIEW_LEN = 220;
+  const summaryIsLong = fic.summary && fic.summary.length > SUMMARY_PREVIEW_LEN;
+  const summaryText = summaryExpanded || !summaryIsLong ? fic.summary : fic.summary.slice(0, SUMMARY_PREVIEW_LEN) + '…';
+
+  const isDnf = status === STATUS_DNF;
+  const showTopRow = status !== STATUS_UNREAD || fic.recommended || fic.syncState !== 'idle';
+
+  return (
+    <article className={`card stack${isDnf ? ' dnf' : ''}${status === STATUS_NOTINT ? ' notint' : ''}`} style={{ gap: 10 }}>
+      {showTopRow && (
+        <div className="wrap" style={{ gap: 6, alignItems: 'center' }}>
+          <StatusPill status={status} dnr={scores.dnr[ficIndex]} />
+          {fic.recommended && (
+            <span className="pill" style={{ background: 'var(--inverse)', color: 'var(--on-inverse)' }}>
+              <Megaphone size={11} color="currentColor" fill="currentColor" />Recommended{fic.recSource ? ` · ${fic.recSource}` : ''}
+            </span>
+          )}
+          <SyncNote fic={fic} onRetry={onRetry} onDiscard={onDiscard} />
+        </div>
+      )}
+
+      <div className="row" style={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <h3 className={`t-card${expanded ? ' big' : ''}`} style={isDnf ? { textDecoration: 'line-through', textDecorationThickness: 2 } : undefined}>{fic.title}</h3>
+          {fic.authors.length > 0 && (<div className="t-meta" style={{ marginTop: 2 }}>by {fic.authors.join(', ')}</div>)}
+          <div className="t-meta num" style={{ marginTop: 4 }}>
+            {fic.rating} · {fic.category} · {fic.words.toLocaleString()} words{fic.chapters > 1 ? ` · ${fic.chapters} ch` : ''} · <span style={{ whiteSpace: 'nowrap' }}>{fic.date}</span>
+          </div>
+        </div>
+        <div className="row" style={{ alignItems: 'flex-start', gap: 6, flexShrink: 0 }}>
+          <RecommendToggle ficId={fic.id} recommended={fic.recommended} recSource={fic.recSource} onUpdate={onUpdateRecommendation} />
+          <div style={{ textAlign: 'right', minWidth: 44 }}>
+            <div className="num" style={{ fontSize: expanded ? 28 : 26, fontWeight: 800, lineHeight: 1, color: 'var(--accent-text)' }}>{pScore.toFixed(0)}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-secondary)', marginTop: 3 }}>SCORE</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="row num" style={{ gap: 16, fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
+        <span className="row" style={{ gap: 5 }} aria-label={`${fic.kudos.toLocaleString()} kudos`}><Heart />{fic.kudos.toLocaleString()}</span>
+        <span className="row" style={{ gap: 5 }} aria-label={`${fic.bookmarks.toLocaleString()} bookmarks`}><BookmarkIcon />{fic.bookmarks.toLocaleString()}</span>
+        <span className="row" style={{ gap: 5 }} aria-label={`${fic.hits.toLocaleString()} hits`}><Eye />{fic.hits.toLocaleString()}</span>
+      </div>
+
+      {multi && fic.ships.length > 0 && (
+        <div className="wrap" style={{ gap: 6 }} aria-label="Ships">
+          {fic.ships.map(sh => (<span key={sh} className="tag" style={{ background: 'var(--accent)', color: 'var(--on-accent)', fontWeight: 700 }}>{sh}</span>))}
+        </div>
+      )}
+
+      {fic.tags.length > 0 && (
+        <div className="wrap" style={{ gap: 6, alignItems: 'center' }}>
+          {fic.tags.slice(0, tagsExpanded ? fic.tags.length : TAG_PREVIEW).map(t => (
+            <span key={t} className="tag">{t}</span>
+          ))}
+          {fic.tags.length > TAG_PREVIEW && (
+            <button onClick={() => setTagsExpanded(v => !v)} className="link">
+              {tagsExpanded ? 'Show less' : `+${fic.tags.length - TAG_PREVIEW} more`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {fic.summary && (
+        <div>
+          <p className="t-body" style={{ whiteSpace: 'pre-line' }}>{summaryText}</p>
+          {summaryIsLong && (
+            <button onClick={() => setSummaryExpanded(v => !v)} className="link" style={{ paddingLeft: 0 }}>
+              {summaryExpanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="row" style={{ gap: 8 }}>
+        <a href={fic.link} target="_blank" rel="noopener noreferrer" className="btn btn-secondary" style={{ padding: '0 14px' }}>
+          AO3 <ExternalLink size={14} />
+        </a>
+        {(status === STATUS_UNREAD || status === STATUS_TBR || status === STATUS_SKIPPED) && (
+          <button onClick={() => onUpdate(fic.id, { status: STATUS_READING, dnr: 0, dnrTags: [], dnrShips: [], dnrCategory: false })} className="btn btn-primary grow">
+            Start reading
+          </button>
+        )}
+        {status === STATUS_READ && (
+          <button onClick={() => onUpdate(fic.id, { status: STATUS_READING })} className="btn btn-primary grow">
+            Read again
+          </button>
+        )}
+        <span className="grow" style={{ flexGrow: (status === STATUS_UNREAD || status === STATUS_TBR || status === STATUS_SKIPPED || status === STATUS_READ) ? 0 : 1 }}></span>
+        {(status === STATUS_READING || status === STATUS_PAUSED || (expanded && (status === STATUS_UNREAD || status === STATUS_TBR))) && (
+          <SessionButton fic={fic} sessionApi={sessionApi} />
+        )}
+        <button onClick={() => onToggleExpand(fic.id)} className="icon-btn" aria-label="Toggle status controls" aria-expanded={!!expanded}>
+          {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+      </div>
+
+      {expanded && (
+        <StatusPicker ficId={fic.id} status={status} dnr={scores.dnr[ficIndex]} dnrTags={fic.dnrTags} dnrShips={fic.dnrShips} dnrCategory={fic.dnrCategory} enjoyment={fic.enjoyment} kg={scores.kg[ficIndex]} bk={scores.bk[ficIndex]} tags={fic.tags} ships={fic.ships} category={fic.category} onUpdate={onUpdate}
+          reading={{ dateStarted: fic.dateStarted, dateRead: fic.dateRead, timesRead: fic.timesRead }} canAddDateRead={canAddDateRead}
+          title={fic.title} authors={fic.authors} />
+      )}
+    </article>
+  );
+}
+
+function ReadingShelfItem({ fic, onUpdate, onStep, onRetry, onDiscard, sessionApi }) {
+  const [panel, setPanel] = useState(null); // null | 'finish' | 'dnf'
+  const paused = fic.status === STATUS_PAUSED;
+  const total = Math.max(1, fic.chapters);
+  const pct = Math.min(100, Math.round((fic.chaptersRead / total) * 100));
+  const accent = paused ? COLORS.pausedSlate : COLORS.gold;
+
+  return (
+    <div id={`shelf-${fic.id}`} className="card stack" style={{ gap: 12, scrollMarginTop: 16, scrollMarginBottom: 170 }}>
+      <div className="row" style={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ minWidth: 0 }}>
+          <h3 className="t-shelf">
+            {fic.title}
+            {paused && <span className="pill" style={{ marginLeft: 8, verticalAlign: 'middle', background: 'var(--grey-block)', color: 'var(--on-grey)' }}><PauseIcon size={10} />Paused</span>}
+          </h3>
+          {fic.authors.length > 0 && (<div className="t-meta num" style={{ marginTop: 2 }}>{fic.authors.join(', ')} · {fic.words.toLocaleString()} words</div>)}
+        </div>
+        <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+          <SessionButton fic={fic} sessionApi={sessionApi} />
+          <a href={fic.link} target="_blank" rel="noopener noreferrer" className="icon-btn" aria-label="Open on AO3"><ExternalLink size={16} /></a>
+        </div>
+      </div>
+
+      <div className="row" style={{ gap: 10 }}>
+        <div className="track" role="progressbar" aria-label="Chapters read" aria-valuemin={0} aria-valuemax={total} aria-valuenow={fic.chaptersRead}>
+          <div style={{ width: `${pct}%`, background: accent }} />
+        </div>
+        <span className="num" style={{ fontSize: 13, fontWeight: 800 }}>{fic.chaptersRead} / {fic.chapters} ch</span>
+        <button onClick={() => onStep(fic.id, -1)} aria-label="One chapter back" className="icon-btn" style={{ fontSize: 20, fontWeight: 700 }}>−</button>
+        <button onClick={() => onStep(fic.id, 1)} aria-label="One chapter forward" className="icon-btn" style={{ fontSize: 20, fontWeight: 700 }}>+</button>
+      </div>
+
+      {panel === null && (
+        <div className="row" style={{ gap: 8 }}>
+          <button onClick={() => setPanel('finish')} className="btn btn-primary grow">Finish</button>
+          <button onClick={() => onUpdate(fic.id, { status: paused ? STATUS_READING : STATUS_PAUSED })} className="btn btn-secondary grow">{paused ? 'Resume' : 'Pause'}</button>
+          <button onClick={() => setPanel('dnf')} className="btn btn-danger grow">DNF</button>
+        </div>
+      )}
+      {panel !== null && (
+        <StatusPicker ficId={fic.id} status={fic.status} dnr={fic.dnr} dnrTags={fic.dnrTags} dnrShips={fic.dnrShips} dnrCategory={fic.dnrCategory} enjoyment={fic.enjoyment}
+          kg={fic.kg} bk={fic.bk} tags={fic.tags} ships={fic.ships} category={fic.category} onUpdate={onUpdate}
+          panelOnly initialPending={panel === 'finish' ? STATUS_READ : STATUS_DNF}
+          onDone={() => setPanel(null)} onCancel={() => setPanel(null)}
+          title={fic.title} authors={fic.authors} />
+      )}
+
+      <SyncNote fic={fic} onRetry={onRetry} onDiscard={onDiscard} />
+    </div>
+  );
+}
+
+function CurrentlyReadingShelf({ fics, onUpdate, onStep, onRetry, onDiscard, missingCols, sessionApi, open, setOpen }) {
+  const items = useMemo(() => fics
+    .filter(f => f.status === STATUS_READING || f.status === STATUS_PAUSED)
+    .sort((a, b) => (b.lastRead || '').localeCompare(a.lastRead || '') || (b.dateStarted || '').localeCompare(a.dateStarted || '') || a.rowNumber - b.rowNumber),
+  [fics]);
+  if (items.length === 0) return null;
+  return (
+    <section id="reading-shelf" className="stack" style={{ gap: 10, scrollMarginTop: 16 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h2 className="t-section row" style={{ gap: 8 }}>Currently reading <span className="pill num" style={{ background: 'var(--lime)', color: '#111111', fontSize: 13 }}>{items.length}</span></h2>
+        <button onClick={() => setOpen(v => !v)} className="btn btn-text" aria-expanded={open}>{open ? 'Hide' : 'Show'}</button>
+      </div>
+      {open && missingCols.length > 0 && (
+        <p className="t-caption" style={{ margin: 0, color: 'var(--warn-text)' }}>Add {missingCols.map(c => `"${c}"`).join(', ')} to your Data List tab to keep these between sessions.</p>
+      )}
+      {open && items.map(f => (<ReadingShelfItem key={f.id} fic={f} onUpdate={onUpdate} onStep={onStep} onRetry={onRetry} onDiscard={onDiscard} sessionApi={sessionApi} />))}
+    </section>
+  );
+}
+
+function SignInScreen({ fandom, onSignIn, gisReady, authError, onSwitch }) {
+  return (
+    <div className="row" style={{ minHeight: '100vh', justifyContent: 'center', padding: 24 }}>
+      <div className="card stack" style={{ maxWidth: 380, width: '100%', gap: 14, textAlign: 'center', padding: 24 }}>
+        <div className="t-fandom">{fandomLine(fandom)}</div>
+        <h1 className="t-app"><span className="hl">{fandom.title}</span></h1>
+        <p className="t-body">
+          Sign in with the Google account that owns (or can edit) your {fandom.title} sheet. Marking a fic here will write straight back to it.
+        </p>
+        <button onClick={onSignIn} disabled={!gisReady} className="btn btn-primary btn-lg" style={{ width: '100%' }}>
+          {gisReady ? 'Sign in with Google' : 'Loading…'}
+        </button>
+        {authError && (<p className="t-meta" style={{ margin: 0, color: 'var(--error-text)' }}>{authError}</p>)}
+        <p className="t-caption" style={{ margin: 0 }}>
+          You may see an "unverified app" warning — that's expected for a personal project. Click Advanced → Go to (unsafe) to continue.
+        </p>
+        <button onClick={onSwitch} className="btn btn-text">Switch fandom</button>
+      </div>
+    </div>
+  );
+}
+
+function toCSVField(v) {
+  const s = String(v ?? '');
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+// ---------- Reading-session timer: hook and UI ----------
+function useReadingSession({ fid, fics, updateFic, logMissing, data }) {
+  const [active, setActiveState] = useState(() => loadActiveSession(fid));
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  // ui: null | { kind: 'switch' | 'forgotten' | 'end' | 'flow', pendingFic?, endStamp?, mode?, ficId? }
+  const [ui, setUi] = useState(null);
+  const ficsRef = useRef(fics);
+  useEffect(() => { ficsRef.current = fics; }, [fics]);
+
+  const setActive = (s) => { saveActiveSession(fid, s); setActiveState(s); };
+  const freshFic = (fic) => (fic && ficsRef.current.find(f => f.id === fic.id)) || fic;
+
+  useEffect(() => {
+    const onStorage = (e) => { // another tab started or ended a session
+      if (e.key === fkey(fid, 'reading-session')) setActiveState(loadActiveSession(fid));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // A session over 6 hours old, or from an earlier day, is never auto-ended: ask instead.
+  const checkForgotten = () => {
+    const s = loadActiveSession(fid);
+    if (s && isSessionForgotten(s, Date.now())) setUi(u => u || { kind: 'forgotten' });
+  };
+  useEffect(() => { checkForgotten(); }, []);
+  // The tick only re-renders the pill; elapsed time is always worked out from the stored start.
+  useEffect(() => {
+    if (!active) return;
+    const tick = () => setNowMs(Date.now());
+    tick();
+    const t = setInterval(tick, 15000);
+    const onVis = () => { if (document.visibilityState === 'visible') { tick(); checkForgotten(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [active]);
+
+  // No Reading Log tab: logging is skipped silently, as for the other events.
+  useEffect(() => {
+    if (!logMissing) return;
+    if (loadActiveSession(fid)) setActive(null);
+    setUi(null);
+  }, [logMissing]);
+
+  const doStart = async (ficIn) => {
+    const fic = freshFic(ficIn);
+    if (!fic) return;
+    if (fic.status !== STATUS_READING) {
+      // The existing Start reading / Resume path (status, Date Started, the Started event).
+      const patch = fic.status === STATUS_PAUSED
+        ? { status: STATUS_READING }
+        : { status: STATUS_READING, dnr: 0, dnrTags: [], dnrShips: [], dnrCategory: false };
+      const ok = await updateFic(fic.id, patch);
+      if (!ok) return;
+    }
+    const { session, row } = planSessionStart(fic, Date.now());
+    data.addLogRow(row, session.startEventId);
+    setActive(session);
+  };
+
+  const startSession = (fic) => {
+    const cur = loadActiveSession(fid);
+    if (cur) {
+      const forgotten = isSessionForgotten(cur, Date.now());
+      if (cur.ficId === fic.id && !forgotten) { setUi({ kind: 'end' }); return; }
+      setUi(forgotten ? { kind: 'forgotten', pendingFic: fic } : { kind: 'switch', pendingFic: fic });
+      return;
+    }
+    doStart(fic);
+  };
+  const openEnd = () => {
+    const cur = loadActiveSession(fid);
+    if (!cur) return;
+    setUi(isSessionForgotten(cur, Date.now()) ? { kind: 'forgotten' } : { kind: 'end' });
+  };
+
+  const writeEnd = (session, chapters, endStamp) => {
+    data.addLogRow(sessionEndRow(session, chapters, endStamp));
+    setActive(null);
+  };
+  // Shared by Save / I finished it / DNF. The chapter count goes to the Data List through the same
+  // path as the chapter stepper, minus the Progress row (the "Session ended" row records it).
+  const endWith = async (mode, chapters) => {
+    const s = loadActiveSession(fid);
+    const u = ui || {};
+    if (!s) { setUi(null); return; }
+    if (!u.endStamp && isSessionForgotten(s, Date.now())) { setUi({ kind: 'forgotten', pendingFic: u.pendingFic }); return; }
+    const fic = ficsRef.current.find(f => f.id === s.ficId);
+    const endChapters = mode === 'finish' ? Math.max(s.startChapters, fic ? fic.chapters || 0 : chapters) : chapters;
+    const endStamp = u.endStamp || melbourneNow().stamp;
+    setUi(null);
+    writeEnd(s, endChapters, endStamp);
+    if (fic) await updateFic(fic.id, { chaptersRead: endChapters, lastRead: endStamp }, { skipLogEvents: true });
+    if (mode !== 'save' && fic) { setUi({ kind: 'flow', mode, ficId: fic.id, pendingFic: u.pendingFic }); return; }
+    if (u.pendingFic) doStart(u.pendingFic);
+  };
+  const flowDone = () => {
+    const p = ui && ui.pendingFic;
+    setUi(null);
+    if (p) doStart(p);
+  };
+  const discard = () => {
+    const s = loadActiveSession(fid);
+    const p = ui && ui.pendingFic;
+    if (s) data.removeLogRow(s.startEventId); // a start still waiting to sync is dropped too
+    setActive(null);
+    setUi(null);
+    if (p) doStart(p);
+  };
+  const setEndTime = (endStamp) => setUi(u => ({ kind: 'end', endStamp, pendingFic: u && u.pendingFic }));
+
+  return {
+    enabled: !logMissing, active, nowMs, ui, setUi,
+    startSession, openEnd, endWith, flowDone, discard, setEndTime,
+  };
+}
+
+function TimerIcon(props) {
+  return <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 18} height={props.size || 18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5"/><path d="M9.5 2h5"/><path d="M12 2v3"/></svg>;
+}
+
+// Timer button on fic cards: starts a session, or opens the end sheet when this fic's session is running.
+function SessionButton({ fic, sessionApi }) {
+  if (!sessionApi || !sessionApi.enabled) return null;
+  const running = !!sessionApi.active && sessionApi.active.ficId === fic.id;
+  return (
+    <button onClick={() => (running ? sessionApi.openEnd() : sessionApi.startSession(fic))} className="icon-btn"
+      aria-label={running ? 'End reading session' : 'Start reading session'} title={running ? 'End session' : 'Start session'}
+      style={running ? { background: 'var(--accent)', color: 'var(--on-accent)' } : undefined}>
+      <TimerIcon size={18} />
+    </button>
+  );
+}
+
+function SessionPill({ api }) {
+  const s = api.active;
+  if (!s) return null;
+  const forgotten = isSessionForgotten(s, api.nowMs);
+  const timeText = forgotten ? `since ${sessionDayLabel(s).split(' ')[0]} ${s.startStamp.slice(11)}` : formatElapsed(api.nowMs - s.startMs);
+  const openFic = () => {
+    const el = document.getElementById(`shelf-${s.ficId}`) || document.getElementById('reading-shelf');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  return (
+    <div className="session-pill" role="region" aria-label="Reading session">
+      <button onClick={openFic} className="session-pill-main" aria-label={`${s.title}, ${timeText}. Go to this fic`}>
+        <TimerIcon size={18} />
+        <span className="session-pill-title">{s.title}</span>
+        <span className="session-pill-time num">{timeText}</span>
+      </button>
+      <button onClick={api.openEnd} className="session-pill-end">End</button>
+    </div>
+  );
+}
+
+function SessionEndSheet({ session, fic, endStamp, pendingFic, onEnd, onDiscard, onClose }) {
+  const min = session.startChapters;
+  const max = Math.max(min, fic ? fic.chapters || 0 : min);
+  const [chapters, setChapters] = useState(() => Math.min(max, Math.max(min, fic ? fic.chaptersRead || 0 : min)));
+  const step = (d) => setChapters(c => Math.min(max, Math.max(min, c + d)));
+  return (
+    <Sheet label="End reading session" onClose={onClose}>
+      <div>
+        <div className="t-meta" style={{ fontWeight: 700 }}>
+          {endStamp ? `Ending at ${endStamp.slice(11)} on ${sessionDayLabel(session)}` : `Reading session · ${formatElapsed(Date.now() - session.startMs)}`}
+        </div>
+        <h2 className="t-sheet" style={{ marginTop: 2 }}>{session.title}</h2>
+        {pendingFic && <p className="t-caption" style={{ margin: '4px 0 0' }}>Then starting {pendingFic.title}</p>}
+      </div>
+      <div className="stack" style={{ gap: 8 }}>
+        <div style={{ fontSize: 15, fontWeight: 800 }}>Chapters read now</div>
+        <div className="row" style={{ gap: 8 }}>
+          <button onClick={() => step(-1)} disabled={chapters <= min} className="icon-btn" aria-label="One chapter fewer" style={{ fontSize: 20, fontWeight: 700 }}>−</button>
+          <div className="num grow" style={{ textAlign: 'center', fontSize: 22, fontWeight: 800 }} aria-live="polite">
+            {chapters} <span className="t-meta">/ {fic ? fic.chapters : max} ch</span>
+          </div>
+          <button onClick={() => step(1)} disabled={chapters >= max} className="icon-btn" aria-label="One chapter more" style={{ fontSize: 20, fontWeight: 700 }}>+</button>
+          <button onClick={() => step(1)} disabled={chapters >= max} className="btn btn-secondary">+1 chapter</button>
+        </div>
+        <p className="t-caption" style={{ margin: 0 }}>
+          Started this session at chapter {min}{chapters > min ? ` · +${chapters - min} this session` : ''}
+        </p>
+      </div>
+      <button onClick={() => onEnd('save', chapters)} className="btn btn-primary btn-xl">Save session</button>
+      <div className="row" style={{ gap: 8 }}>
+        <button onClick={() => onEnd('finish', chapters)} className="btn btn-lg grow" style={{ background: 'var(--lime)', color: '#111111' }}><Check size={14} />I finished it</button>
+        <button onClick={() => onEnd('dnf', chapters)} className="btn btn-danger btn-lg grow">DNF</button>
+      </div>
+      <button onClick={onDiscard} className="btn btn-text">Discard session</button>
+    </Sheet>
+  );
+}
+
+function SessionForgottenSheet({ session, onSetEnd, onDiscard, onClose }) {
+  const nowMs = Date.now();
+  const bounds = sessionEndBounds(session, nowMs);
+  const [picking, setPicking] = useState(false);
+  const [time, setTime] = useState(bounds.max);
+  const stamp = sessionEndStampFor(session, time, nowMs);
+  return (
+    <Sheet label="Still reading?" onClose={onClose}>
+      <div>
+        <h2 className="t-sheet">Still reading {session.title}?</h2>
+        <p className="t-body" style={{ marginTop: 6 }}>Your session started at {session.startStamp.slice(11)} on {sessionDayLabel(session)}.</p>
+      </div>
+      {picking ? (
+        <div className="stack" style={{ gap: 8 }}>
+          <label className="stack" style={{ gap: 6 }}>
+            <span style={{ fontSize: 15, fontWeight: 800 }}>When did you stop reading?</span>
+            <input type="time" value={time} min={bounds.min} max={bounds.max} onChange={e => setTime(e.target.value)} aria-describedby="session-end-hint"
+              style={{ minHeight: 48, border: 0, borderRadius: 999, padding: '0 16px', background: 'var(--surface-sunken)', color: 'var(--text)', fontSize: 16, fontWeight: 700 }} />
+          </label>
+          <p id="session-end-hint" className="t-caption" style={{ margin: 0, ...(stamp ? {} : { color: 'var(--error-text)' }) }}>
+            Any time from {bounds.min} to {bounds.max} on {sessionDayLabel(session)}.
+          </p>
+          <button disabled={!stamp} onClick={() => onSetEnd(stamp)} className="btn btn-primary btn-xl">Next: chapters read</button>
+        </div>
+      ) : (
+        <button onClick={() => setPicking(true)} className="btn btn-primary btn-xl">Set end time</button>
+      )}
+      <button onClick={onDiscard} className="btn btn-text">Discard</button>
+    </Sheet>
+  );
+}
+
+// Everything the session shows on top of the app: the floating pill and its sheets.
+function SessionLayer({ api, fics, onUpdate }) {
+  const s = api.active;
+  const ui = api.ui;
+  const sessionFic = s ? fics.find(f => f.id === s.ficId) : null;
+  const flowFic = ui && ui.kind === 'flow' ? fics.find(f => f.id === ui.ficId) : null;
+  return (
+    <>
+      <SessionPill api={api} />
+      {ui && ui.kind === 'switch' && s && (
+        <Sheet label="End current session?" onClose={() => api.setUi(null)}>
+          <h2 className="t-sheet">End your session on {s.title} first?</h2>
+          <button onClick={() => api.setUi({ kind: 'end', pendingFic: ui.pendingFic })} className="btn btn-primary btn-xl">End it and start this one</button>
+          <button onClick={() => api.setUi(null)} className="btn btn-text">Cancel</button>
+        </Sheet>
+      )}
+      {ui && ui.kind === 'forgotten' && s && (
+        <SessionForgottenSheet key={`forgot-${s.startEventId}`} session={s} onSetEnd={api.setEndTime} onDiscard={api.discard} onClose={() => api.setUi(null)} />
+      )}
+      {ui && ui.kind === 'end' && s && (
+        <SessionEndSheet key={`end-${s.startEventId}-${ui.endStamp || ''}`} session={s} fic={sessionFic} endStamp={ui.endStamp} pendingFic={ui.pendingFic}
+          onEnd={api.endWith} onDiscard={api.discard} onClose={() => api.setUi(null)} />
+      )}
+      {flowFic && (
+        <StatusPicker key={`flow-${ui.ficId}-${ui.mode}`} ficId={flowFic.id} status={flowFic.status} dnr={flowFic.dnr} dnrTags={flowFic.dnrTags} dnrShips={flowFic.dnrShips} ships={flowFic.ships} dnrCategory={flowFic.dnrCategory} enjoyment={flowFic.enjoyment}
+          kg={flowFic.kg} bk={flowFic.bk} tags={flowFic.tags} category={flowFic.category} onUpdate={onUpdate}
+          panelOnly initialPending={ui.mode === 'finish' ? STATUS_READ : STATUS_DNF}
+          onDone={api.flowDone} onCancel={api.flowDone} title={flowFic.title} authors={flowFic.authors} />
+      )}
+    </>
+  );
+}
+
+function ExportPanel({ fandom, fics, onClose }) {
+  const csvText = [
+    'Title,Link,Status,DNR Reason,K,B',
+    ...fics.map(f => [f.title, f.link, f.status ? STATUS_LABELS[f.status] : '', f.dnr ? DNR_LABELS[f.dnr] : '', f.kg ? 'Y' : '', f.bk ? 'Y' : ''].map(toCSVField).join(','))
+  ].join('\n');
+
+  const [copied, setCopied] = useState(false);
+  const copyToClipboard = async () => {
+    try { await navigator.clipboard.writeText(csvText); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch (e) { /* ignore */ }
+  };
+  const downloadCSV = () => {
+    const blob = new Blob([csvText], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${fandom.id}-backup.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Sheet label="Backup current list" onClose={onClose}>
+      <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+        <h2 className="t-sheet">Backup current list</h2>
+        <button onClick={onClose} className="icon-btn" aria-label="Close"><X size={18} /></button>
+      </div>
+      <p className="t-body">
+        Since marks now write straight to your sheet, this is just a snapshot backup of everything as it currently stands — not something you need day-to-day.
+      </p>
+      <div className="row" style={{ gap: 8 }}>
+        <button onClick={copyToClipboard} className="btn btn-primary btn-lg grow">
+          {copied ? 'Copied!' : 'Copy to clipboard'}
+        </button>
+        <button onClick={downloadCSV} className="btn btn-secondary btn-lg">
+          <Download size={16} /> CSV
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ---------- Fandom switcher ----------
+function fandomSummary(fid) { return lsGet(fkey(fid, 'summary'), null); }
+
+function FandomList({ currentId, counts, onPick }) {
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {FANDOMS.map(f => {
+        const n = counts[f.id];
+        const session = !!loadActiveSession(f.id);
+        const current = f.id === currentId;
+        return (
+          <button key={f.id} className="fandom-row" onClick={() => onPick(f.id)} aria-current={current ? 'true' : undefined}
+            aria-label={`${f.title}, ${fandomLine(f)}${typeof n === 'number' ? `, ${n} currently reading` : ''}${session ? ', reading session running' : ''}${current ? ', open now' : ''}`}>
+            <span className="fandom-dot" style={{ background: f.accent.color }} aria-hidden="true"></span>
+            <span className="stack grow" style={{ minWidth: 0 }}>
+              <span style={{ fontSize: 16, fontWeight: 800 }}>{f.title}</span>
+              <span className="t-meta" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fandomLine(f)}</span>
+            </span>
+            {session && <span style={{ display: 'inline-flex', color: 'var(--text-secondary)' }} aria-hidden="true"><TimerIcon size={16} /></span>}
+            {typeof n === 'number' && (
+              <span className="pill num" style={{ background: n ? 'var(--lime)' : 'var(--surface)', color: n ? '#111111' : 'var(--text-secondary)' }} aria-hidden="true">{n} reading</span>
+            )}
+            {current && <span style={{ display: 'inline-flex' }} aria-hidden="true"><Check size={16} /></span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FandomSwitcherSheet({ currentId, currentReading, accessToken, onPick, onClose }) {
+  const [counts, setCounts] = useState(() => {
+    const c = {};
+    FANDOMS.forEach(f => { const s = fandomSummary(f.id); if (s && typeof s.reading === 'number') c[f.id] = s.reading; });
+    c[currentId] = currentReading;
+    return c;
+  });
+  // With a token, refresh the other fandoms' counts from their Status column (small reads).
+  useEffect(() => {
+    if (!accessToken) return;
+    let alive = true;
+    FANDOMS.forEach(f => {
+      if (f.id === currentId || outboxLoad(f.id).length) return; // local changes waiting: keep the local count
+      sheetsApiGetStatusColumn(accessToken, f.sheetId).then(statuses => {
+        const n = statuses.filter(s => s === 'Currently Reading' || s === 'Paused').length;
+        lsSet(fkey(f.id, 'summary'), { reading: n, at: Date.now() });
+        if (alive) setCounts(c => ({ ...c, [f.id]: n }));
+      }).catch(() => {});
+    });
+    return () => { alive = false; };
+  }, []);
+  return (
+    <Sheet label="Switch fandom" onClose={onClose}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h2 className="t-sheet">Fandoms</h2>
+        <button onClick={onClose} className="icon-btn" aria-label="Close"><X size={18} /></button>
+      </div>
+      <FandomList currentId={currentId} counts={counts} onPick={onPick} />
+    </Sheet>
+  );
+}
+
+// First launch only: choose where to start.
+function FandomPicker({ onPick }) {
+  return (
+    <div className="app stack" style={{ gap: 18, paddingBottom: 40 }}>
+      <div className="stack" style={{ gap: 4 }}>
+        <div className="t-fandom">AO3 fic tracker</div>
+        <h1 className="t-app"><span className="hl">Pick a fandom</span></h1>
+        <p className="t-body">You can switch any time by tapping the fandom name at the top. Next time, the app opens where you left off.</p>
+      </div>
+      <FandomList currentId={null} counts={{}} onPick={onPick} />
+    </div>
+  );
+}
+
+const THEME_OPTIONS = [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']];
+
+// ---------- One fandom's screen (remounted fresh for each fandom) ----------
+function FandomApp({ fandom, auth, onSwitch }) {
+  const fid = fandom.id;
+  const multi = isMulti(fandom);
+  const { accessToken, gisReady, signIn, signOut, authError, renewing } = auth;
+  const data = useSheetFics(fandom, auth);
+  const { fics, status: syncStatus, errorMsg, lastSynced, cacheState, refresh, updateFic, retrySync, discardFailed, updateRecommendation, stepChapters, readingMissing, logMissing, queueCount } = data;
+  const scores = useComputedScores(fics, multi);
+  const sessionApi = useReadingSession({ fid, fics, updateFic, logMissing, data });
+
+  // Remembered per fandom: filters, sort, open section, open card, shelf, list length, scroll position.
+  const saved = useRef(lsGet(fkey(fid, 'ui'), null) || {}).current;
+  const [search, setSearch] = useState(saved.search ?? '');
+  const [statusFilter, setStatusFilter] = useState(() => new Set(Array.isArray(saved.status) ? saved.status : [STATUS_UNREAD]));
+  const [ratingFilter, setRatingFilter] = useState(() => new Set(saved.rating || []));
+  const [wordFilter, setWordFilter] = useState(() => new Set(saved.words || []));
+  const [selectedTags, setSelectedTags] = useState(saved.includeTags || []);
+  const [tagQuery, setTagQuery] = useState('');
+  const [excludedTags, setExcludedTags] = useState(saved.excludeTags || []);
+  const [excludeTagQuery, setExcludeTagQuery] = useState('');
+  const [recommendedOnly, setRecommendedOnly] = useState(!!saved.recommendedOnly);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sortBy, setSortBy] = useState(saved.sortBy || 'score');
+  const [expandedId, setExpandedId] = useState(saved.expandedId ?? null);
+  const [visibleCount, setVisibleCount] = useState(saved.visibleCount || PAGE_SIZE);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const [shelfOpen, setShelfOpen] = useState(saved.shelfOpen ?? true);
+  const [navSection, setNavSection] = useState(saved.navSection || 'fics');
+  const [barDismissed, setBarDismissed] = useState(false);
+  const [theme, setTheme] = useState(() => lsGetRaw(KEYS.theme) || 'auto');
+
+  const scrollYRef = useRef(saved.scrollY || 0);
+  const restoredRef = useRef(false);
+  const uiRef = useRef({});
+  uiRef.current = {
+    search, status: [...statusFilter], rating: [...ratingFilter], words: [...wordFilter], includeTags: selectedTags, excludeTags: excludedTags,
+    recommendedOnly, sortBy, expandedId, visibleCount, shelfOpen, navSection,
+  };
+  const saveUi = useCallback(() => {
+    if (restoredRef.current) scrollYRef.current = window.scrollY;
+    lsSet(fkey(fid, 'ui'), { ...uiRef.current, scrollY: scrollYRef.current });
+  }, [fid]);
+  useEffect(() => { const t = setTimeout(saveUi, 250); return () => clearTimeout(t); },
+    [search, statusFilter, ratingFilter, wordFilter, selectedTags, excludedTags, recommendedOnly, sortBy, expandedId, visibleCount, shelfOpen, navSection]);
+  useEffect(() => {
+    let t = null;
+    const onScroll = () => { if (!restoredRef.current) return; clearTimeout(t); t = setTimeout(saveUi, 200); };
+    const onHide = () => { if (document.visibilityState === 'hidden') saveUi(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('pagehide', saveUi);
+    document.addEventListener('visibilitychange', onHide);
+    return () => { clearTimeout(t); window.removeEventListener('scroll', onScroll); window.removeEventListener('pagehide', saveUi); document.removeEventListener('visibilitychange', onHide); };
+  }, [saveUi]);
+  // Back to where you were, once the list is on screen.
+  useEffect(() => {
+    if (restoredRef.current || !scores || !fics.length) return;
+    const y = scrollYRef.current;
+    requestAnimationFrame(() => {
+      window.scrollTo(0, y);
+      requestAnimationFrame(() => { window.scrollTo(0, y); restoredRef.current = true; });
+    });
+  }, [scores, fics.length]);
+  const switchTo = (id) => { saveUi(); setShowSwitcher(false); if (id !== fid) onSwitch(id); };
+
+  const ALL_RATINGS = useMemo(() => [...new Set(fics.map(f => f.rating).filter(Boolean))].sort(), [fics]);
+  const ALL_TAGS = useMemo(() => [...new Set(fics.flatMap(f => f.tags))], [fics]);
+  const TAG_FREQUENCY = useMemo(() => {
+    const m = new Map();
+    fics.forEach(f => f.tags.forEach(t => m.set(t, (m.get(t) || 0) + 1)));
+    return m;
+  }, [fics]);
+  const TAGS_BY_FREQUENCY = useMemo(() => [...ALL_TAGS].sort((a, b) => TAG_FREQUENCY.get(b) - TAG_FREQUENCY.get(a)), [ALL_TAGS, TAG_FREQUENCY]);
+
+  const tagSuggestions = useMemo(() => {
+    const q = tagQuery.trim().toLowerCase();
+    const pool = q ? [...ALL_TAGS].sort() : TAGS_BY_FREQUENCY;
+    return pool
+      .filter(t => !selectedTags.includes(t) && !excludedTags.includes(t))
+      .filter(t => !q || t.toLowerCase().includes(q))
+      .slice(0, 5);
+  }, [ALL_TAGS, TAGS_BY_FREQUENCY, tagQuery, selectedTags, excludedTags]);
+  const addTag = (t) => { setSelectedTags(prev => [...prev, t]); setTagQuery(''); };
+  const removeTag = (t) => setSelectedTags(prev => prev.filter(x => x !== t));
+
+  const excludeTagSuggestions = useMemo(() => {
+    const q = excludeTagQuery.trim().toLowerCase();
+    const pool = q ? [...ALL_TAGS].sort() : TAGS_BY_FREQUENCY;
+    return pool
+      .filter(t => !selectedTags.includes(t) && !excludedTags.includes(t))
+      .filter(t => !q || t.toLowerCase().includes(q))
+      .slice(0, 5);
+  }, [ALL_TAGS, TAGS_BY_FREQUENCY, excludeTagQuery, selectedTags, excludedTags]);
+  const addExcludeTag = (t) => { setExcludedTags(prev => [...prev, t]); setExcludeTagQuery(''); };
+  const removeExcludeTag = (t) => setExcludedTags(prev => prev.filter(x => x !== t));
+
+  const toggleSetValue = (setFn, set, val) => {
+    setFn(prev => { const next = new Set(prev); if (next.has(val)) next.delete(val); else next.add(val); return next; });
+  };
+
+  const filteredIndices = useMemo(() => {
+    if (!scores) return [];
+    const q = search.trim().toLowerCase();
+    const indices = [];
+    for (let i = 0; i < fics.length; i++) {
+      const f = fics[i];
+      if (statusFilter.size && !statusFilter.has(scores.status[i])) continue;
+      if (ratingFilter.size && !ratingFilter.has(f.rating)) continue;
+      if (wordFilter.size) {
+        const inRange = [...wordFilter].some(bIdx => { const [, min, max] = WORD_BUCKETS[bIdx]; return f.words >= min && f.words < max; });
+        if (!inRange) continue;
+      }
+      if (selectedTags.length && !selectedTags.every(t => f.tags.includes(t))) continue;
+      if (excludedTags.length && excludedTags.some(t => f.tags.includes(t))) continue;
+      if (recommendedOnly && !f.recommended) continue;
+      if (q) {
+        const titleMatch = f.title.toLowerCase().includes(q);
+        const tagMatch = f.tags.some(t => t.toLowerCase().includes(q));
+        const shipMatch = multi && f.ships.some(s => s.toLowerCase().includes(q));
+        const authorMatch = f.authors.some(a => a.toLowerCase().includes(q));
+        if (!titleMatch && !tagMatch && !shipMatch && !authorMatch) continue;
+      }
+      indices.push(i);
+    }
+    if (sortBy === 'score') indices.sort((a, b) => scores.pScore[b] - scores.pScore[a]);
+    else if (sortBy === 'qscore') indices.sort((a, b) => scores.qScore[b] - scores.qScore[a]);
+    else if (sortBy === 'recent') indices.sort((a, b) => parseFicDate(fics[b].date) - parseFicDate(fics[a].date));
+    else if (sortBy === 'kudos') indices.sort((a, b) => fics[b].kudos - fics[a].kudos);
+    return indices;
+  }, [fics, scores, search, statusFilter, ratingFilter, wordFilter, selectedTags, excludedTags, recommendedOnly, sortBy, multi]);
+
+  // Changing a filter starts the list from the top again (but not when restoring saved settings).
+  const firstFilterRun = useRef(true);
+  useEffect(() => {
+    if (firstFilterRun.current) { firstFilterRun.current = false; return; }
+    setVisibleCount(PAGE_SIZE);
+  }, [search, statusFilter, ratingFilter, wordFilter, sortBy]);
+
+  // UI glue for the floating nav (layout only; no data or logic involved).
+  const goTo = (section) => {
+    setNavSection(section);
+    if (section === 'fics') window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (section === 'reading') { const el = document.getElementById('reading-shelf'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  };
+  const activeNav = filtersOpen ? 'filters' : showSettings ? 'account' : navSection;
+  const SORT_NOTE = { score: 'by score', qscore: 'by popularity', recent: 'newest first', kudos: 'by kudos' };
+  const chooseTheme = (t) => { setTheme(t); lsSetRaw(KEYS.theme, t === 'auto' ? null : t); window.applyTheme(t); };
+
+  const hasData = fics.length > 0 || cacheState === 'hit';
+  if (!accessToken && !renewing && cacheState === 'miss' && !fics.length) {
+    return (
+      <>
+        <SignInScreen fandom={fandom} onSignIn={signIn} gisReady={gisReady} authError={authError} onSwitch={() => setShowSwitcher(true)} />
+        {showSwitcher && <FandomSwitcherSheet currentId={fid} currentReading={0} accessToken={null} onPick={switchTo} onClose={() => setShowSwitcher(false)} />}
+      </>
+    );
+  }
+
+  const activeFilterCount = ratingFilter.size + wordFilter.size + selectedTags.length + excludedTags.length;
+  const failedSyncCount = fics.filter(f => f.syncState === 'error').length;
+  const syncingCount = fics.filter(f => f.syncState === 'syncing').length;
+  const readingCount = fics.filter(f => isShelfStatus(f.status)).length;
+  const visible = filteredIndices.slice(0, visibleCount);
+  const timeText = lastSynced ? lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+  return (
+    <div className={`app stack${sessionApi.active ? ' has-session' : ''}`} style={{ gap: 18 }}>
+      <header className="stack" style={{ gap: 12 }}>
+        <div className="row" style={{ justifyContent: 'space-between', gap: 12 }}>
+          <h1 style={{ margin: 0, minWidth: 0 }}>
+            <button className="fandom-switch" onClick={() => setShowSwitcher(true)} aria-label={`${fandom.title}, ${fandomLine(fandom)}. Switch fandom`}>
+              <span className="t-fandom">{fandomLine(fandom)}</span>
+              <span className="t-app"><span className="hl">{fandom.title}</span><ChevronDown size={22} /></span>
+            </button>
+          </h1>
+          <button onClick={accessToken ? refresh : signIn} disabled={syncStatus === 'loading'} className="icon-btn raised" aria-label={accessToken ? 'Refresh from sheet' : 'Sign in to sync'}>
+            <span style={{ display: 'inline-flex', animation: syncStatus === 'loading' ? 'spin 1s linear infinite' : 'none' }}><RefreshCw size={18} /></span>
+          </button>
+        </div>
+
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <span className="count-pill num">{filteredIndices.length.toLocaleString()} of {fics.length.toLocaleString()}</span>
+          <span className="t-meta">
+            {syncStatus === 'loading' && 'Syncing…'}
+            {syncStatus !== 'loading' && syncStatus !== 'error' && lastSynced && (accessToken ? `Synced ${timeText}` : `Saved copy from ${timeText}`)}
+            {syncStatus === 'error' && <span style={{ color: 'var(--error-text)' }}>Sync failed — showing last loaded data</span>}
+            {queueCount > 0 && ` · ${queueCount} change${queueCount === 1 ? '' : 's'} waiting to sync`}
+          </span>
+        </div>
+
+        {!accessToken && hasData && !barDismissed && (
+          <div className="signin-bar" role="status">
+            <span className="grow">{renewing ? 'Reconnecting to Google…' : 'Sign in to sync'}</span>
+            {!renewing && <button onClick={signIn} disabled={!gisReady} className="btn">Sign in</button>}
+            <button onClick={() => setBarDismissed(true)} className="icon-btn" aria-label="Dismiss"><X size={16} /></button>
+          </div>
+        )}
+        {authError && !accessToken && (<div className="banner error" role="alert">{authError}</div>)}
+        {syncStatus === 'error' && (<div className="banner error" role="alert">{errorMsg}</div>)}
+        {failedSyncCount > 0 && (
+          <div className="banner error" role="alert" style={{ fontWeight: 700 }}>
+            {failedSyncCount} fic{failedSyncCount === 1 ? '' : 's'} failed to save to your sheet — scroll down to find the red "tap to retry" note on each.
+          </div>
+        )}
+        {(readingMissing.length > 0 || logMissing) && (
+          <div className="banner warn">
+            Reading tracker isn't fully set up, so some things aren't being saved:
+            {readingMissing.length > 0 && <> no column named {readingMissing.map(c => `"${c}"`).join(', ')}.</>}
+            {logMissing && <> no tab named "Reading Log".</>}
+            {' '}Names must match exactly, including capitalisation and spacing.
+          </div>
+        )}
+        {syncingCount > 0 && failedSyncCount === 0 && (
+          <div className="banner info">
+            Saving {syncingCount} change{syncingCount === 1 ? '' : 's'} to your sheet…
+          </div>
+        )}
+
+        <label className="search">
+          <Search size={18} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={multi ? 'Search title, tag, ship or author' : 'Search title, tag or author'} aria-label="Search fics" />
+          {search && (<button onClick={() => setSearch('')} className="icon-btn" style={{ background: 'transparent' }} aria-label="Clear search"><X size={16} /></button>)}
+        </label>
+
+        <div className="hscroll" role="group" aria-label="Status filters">
+          <button onClick={() => setFiltersOpen(v => !v)} className="chip" aria-expanded={filtersOpen}
+            style={{ background: 'var(--inverse)', color: 'var(--on-inverse)', fontWeight: 700, boxShadow: 'none' }}>
+            <SlidersHorizontal size={16} /> Filters {activeFilterCount > 0 ? `(${activeFilterCount})` : ''}
+          </button>
+          {[STATUS_UNREAD, STATUS_TBR, STATUS_READING, STATUS_PAUSED, STATUS_READ, STATUS_DNF, STATUS_SKIPPED, STATUS_NOTINT].map(s => (
+            <Chip key={s} active={statusFilter.has(s)} onClick={() => toggleSetValue(setStatusFilter, statusFilter, s)} color={STATUS_COLOR[s]} textColor={STATUS_ON[s]}>{STATUS_LABELS[s]}</Chip>
+          ))}
+          <Chip active={recommendedOnly} onClick={() => setRecommendedOnly(v => !v)}>Recommended</Chip>
+        </div>
+
+        <div className="seg" role="group" aria-label="Sort by">
+          {[['score', 'Score'], ['qscore', 'Popularity'], ['recent', 'Newest'], ['kudos', 'Kudos']].map(([key, label]) => (
+            <button key={key} onClick={() => setSortBy(key)} aria-pressed={sortBy === key}>{label}</button>
+          ))}
+        </div>
+      </header>
+
+      <CurrentlyReadingShelf fics={fics} onUpdate={updateFic} onStep={stepChapters} onRetry={retrySync} onDiscard={discardFailed} missingCols={readingMissing} sessionApi={sessionApi}
+        open={shelfOpen} setOpen={setShelfOpen} />
+
+      <main id="fic-list" className="stack" style={{ gap: 12 }}>
+        <h2 className="t-section">Fics <span className="t-meta">· {SORT_NOTE[sortBy]}</span></h2>
+        {(syncStatus === 'loading' || cacheState === 'loading' || renewing) && fics.length === 0 && (
+          <div className="card row" style={{ gap: 10, justifyContent: 'center', color: 'var(--text-secondary)' }}>
+            <span style={{ display: 'inline-flex', color: 'var(--accent-text)', animation: 'spin 1s linear infinite' }}><RefreshCw size={18} /></span>
+            <span className="t-meta">Loading your fic list…</span>
+          </div>
+        )}
+        {visible.length === 0 && syncStatus !== 'loading' && cacheState !== 'loading' && !(renewing && !fics.length) && (
+          <div className="card" style={{ textAlign: 'center' }}><span className="t-meta">No fics match these filters.</span></div>
+        )}
+        {scores && visible.map(idx => (
+          <FicCard key={fics[idx].id} fic={fics[idx]} ficIndex={idx} scores={scores} onUpdate={updateFic} onRetry={retrySync} onDiscard={discardFailed} onUpdateRecommendation={updateRecommendation} canAddDateRead={!readingMissing.includes('Date Read')} sessionApi={sessionApi}
+            expanded={expandedId === fics[idx].id} onToggleExpand={(id) => setExpandedId(prev => (prev === id ? null : id))} />
+        ))}
+        {visibleCount < filteredIndices.length && (
+          <button onClick={() => setVisibleCount(v => v + PAGE_SIZE)} className="btn btn-secondary btn-lg" style={{ width: '100%', background: 'var(--surface)', boxShadow: 'var(--shadow-control)' }}>
+            Load more ({filteredIndices.length - visibleCount} remaining)
+          </button>
+        )}
+      </main>
+
+      {filtersOpen && (
+        <Sheet label="Filters" onClose={() => setFiltersOpen(false)}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h2 className="t-sheet">Filters</h2>
+            <button onClick={() => setFiltersOpen(false)} className="icon-btn" aria-label="Close filters"><X size={18} /></button>
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="t-caps">Rating</div>
+            <div className="wrap" style={{ gap: 8 }}>{ALL_RATINGS.map(r => (<Chip key={r} active={ratingFilter.has(r)} onClick={() => toggleSetValue(setRatingFilter, ratingFilter, r)}>{r}</Chip>))}</div>
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="t-caps">Word count</div>
+            <div className="wrap" style={{ gap: 8 }}>{WORD_BUCKETS.map(([label], i) => (<Chip key={label} active={wordFilter.has(i)} onClick={() => toggleSetValue(setWordFilter, wordFilter, i)}>{label}</Chip>))}</div>
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="t-caps">Include tags</div>
+            {selectedTags.length > 0 && (
+              <div className="wrap" style={{ gap: 6 }}>
+                {selectedTags.map(t => (
+                  <span key={t} className="pill" style={{ background: 'var(--accent)', color: 'var(--on-accent)', fontSize: 13, fontWeight: 700, padding: '0 0 0 14px', minHeight: 44 }}>
+                    {t}
+                    <button onClick={() => removeTag(t)} aria-label={`Remove ${t} filter`} className="row" style={{ width: 44, height: 44, justifyContent: 'center' }}><X size={14} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <label className="search sunken">
+              <Search size={16} />
+              <input value={tagQuery} onChange={e => setTagQuery(e.target.value)} placeholder={tagQuery ? 'Search tags…' : 'Top 5 shown — or search…'} aria-label="Search tags to include" />
+            </label>
+            {tagSuggestions.length > 0 && (
+              <div className="wrap" style={{ gap: 6 }}>
+                {tagSuggestions.map(t => (
+                  <button key={t} onClick={() => addTag(t)} className="pick" style={{ background: 'var(--surface-sunken)' }}>
+                    {t} <span className="t-meta">({TAG_FREQUENCY.get(t)})</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="t-caps">Exclude tags</div>
+            {excludedTags.length > 0 && (
+              <div className="wrap" style={{ gap: 6 }}>
+                {excludedTags.map(t => (
+                  <span key={t} className="pill" style={{ background: 'var(--inverse)', color: 'var(--on-inverse)', fontSize: 13, fontWeight: 700, padding: '0 0 0 14px', minHeight: 44 }}>
+                    <span style={{ textDecoration: 'line-through' }}>{t}</span>
+                    <button onClick={() => removeExcludeTag(t)} aria-label={`Remove ${t} exclusion`} className="row" style={{ width: 44, height: 44, justifyContent: 'center' }}><X size={14} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <label className="search sunken">
+              <Search size={16} />
+              <input value={excludeTagQuery} onChange={e => setExcludeTagQuery(e.target.value)} placeholder={excludeTagQuery ? 'Search tags…' : 'Top 5 shown — or search…'} aria-label="Search tags to exclude" />
+            </label>
+            {excludeTagSuggestions.length > 0 && (
+              <div className="wrap" style={{ gap: 6 }}>
+                {excludeTagSuggestions.map(t => (
+                  <button key={t} onClick={() => addExcludeTag(t)} className="pick" style={{ background: 'var(--surface-sunken)' }}>
+                    {t} <span className="t-meta">({TAG_FREQUENCY.get(t)})</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button onClick={() => setFiltersOpen(false)} className="btn btn-primary btn-xl">Show {filteredIndices.length.toLocaleString()} fics</button>
+        </Sheet>
+      )}
+
+      {showSettings && (
+        <Sheet label="Account" onClose={() => setShowSettings(false)}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <h2 className="t-sheet">Account</h2>
+            <button onClick={() => setShowSettings(false)} className="icon-btn" aria-label="Close account"><X size={18} /></button>
+          </div>
+          <p className="t-body">{accessToken ? `Signed in and syncing to your ${fandom.title} sheet.` : `Not signed in. Changes are saved on this device and written to your ${fandom.title} sheet when you sign in.`}</p>
+          {!accessToken && <button onClick={() => { setShowSettings(false); signIn(); }} className="btn btn-primary btn-lg">Sign in with Google</button>}
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="t-caps">Appearance · all fandoms</div>
+            <div className="seg" role="group" aria-label="Appearance">
+              {THEME_OPTIONS.map(([key, label]) => (<button key={key} onClick={() => chooseTheme(key)} aria-pressed={theme === key}>{label}</button>))}
+            </div>
+          </div>
+          <button onClick={() => { setShowSettings(false); setShowExport(true); }} className="btn btn-secondary btn-lg"><Download size={16} /> Backup list</button>
+          {accessToken && <button onClick={signOut} className="btn btn-text" style={{ color: 'var(--error-text)' }}>Sign out</button>}
+        </Sheet>
+      )}
+
+      {showExport && <ExportPanel fandom={fandom} fics={fics} onClose={() => setShowExport(false)} />}
+      {showSwitcher && <FandomSwitcherSheet currentId={fid} currentReading={readingCount} accessToken={accessToken} onPick={switchTo} onClose={() => setShowSwitcher(false)} />}
+
+      <SessionLayer api={sessionApi} fics={fics} onUpdate={updateFic} />
+
+      <nav className="nav" aria-label="Sections">
+        <button onClick={() => goTo('fics')} aria-current={activeNav === 'fics' ? 'page' : undefined} aria-label="Fics"><ListIcon />{activeNav === 'fics' && 'Fics'}</button>
+        <button onClick={() => goTo('reading')} aria-current={activeNav === 'reading' ? 'page' : undefined} aria-label="Reading"><BookIcon />{activeNav === 'reading' && 'Reading'}</button>
+        <button onClick={() => setFiltersOpen(true)} aria-current={activeNav === 'filters' ? 'page' : undefined} aria-label="Filters"><SlidersHorizontal size={20} />{activeNav === 'filters' && 'Filters'}</button>
+        <button onClick={() => setShowSettings(true)} aria-current={activeNav === 'account' ? 'page' : undefined} aria-label="Account"><UserIcon />{activeNav === 'account' && 'Account'}</button>
+      </nav>
+    </div>
+  );
+}
+
+// ---------- The app: one sign-in, one fandom on screen at a time ----------
+function FicsApp() {
+  const auth = useGoogleAuth();
+  const [fid, setFid] = useState(window.FICS_INITIAL_FANDOM);
+  const fandom = FANDOM_BY_ID[fid] || null;
+  const switchTo = useCallback((id) => {
+    const f = FANDOM_BY_ID[id];
+    if (!f) return;
+    lsSetRaw(KEYS.lastFandom, id);
+    try { history.replaceState(null, '', `${location.pathname}?fandom=${encodeURIComponent(id)}${location.hash}`); } catch (e) {}
+    window.applyFandomChrome(f);
+    window.scrollTo(0, 0);
+    setFid(id);
+  }, []);
+  const ctx = useMemo(() => ({ fandom, multi: isMulti(fandom) }), [fandom]);
+  if (!fandom) return <FandomPicker onPick={switchTo} />;
+  return (
+    <FandomCtx.Provider value={ctx}>
+      <FandomApp key={fandom.id} fandom={fandom} auth={auth} onSwitch={switchTo} />
+    </FandomCtx.Provider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<FicsApp />);
+</script>
+</body>
+</html>
