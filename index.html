@@ -31,8 +31,21 @@
               on        Text colour on top of the accent.
               text      Accent-coloured text on light backgrounds (score, links).
               textDark  Accent-coloured text on dark backgrounds (dark mode).
+     migrateFrom  (optional) Key prefix of an older single-fandom app on this same site, e.g.
+              'hollanov' for the old app's "hollanov-reading-session". On this fandom's first
+              launch, its in-progress session timer is copied across once. The old keys are never
+              changed or deleted.
    ===================================================================================== */
 window.FANDOMS = [
+  { id: 'hollanov', name: 'Game Changers', title: 'Hollanov', mode: 'single', pairing: 'Ilya / Shane',
+    sheetId: '1vsJxSpJFZaiBh540318Jq_yqIYG9h9ucTR_7AZ87L2I', migrateFrom: 'hollanov',
+    accent: { color: '#2D5BFF', on: '#FFFFFF', text: '#2D5BFF', textDark: '#8FA8FF' } },
+  { id: 'asoiaf', name: 'A Song of Ice and Fire', title: 'ASOIAF', mode: 'multi',
+    sheetId: '1SQIBxxO8XgpvpR5vjSJS1Nu3l5Pq0z2v2W0uSYx_aMI', migrateFrom: 'asoiaf',
+    accent: { color: '#FF6B4A', on: '#111111', text: '#C2381A', textDark: '#FF8A6E' } },
+  { id: 'drarry', name: 'Harry Potter', title: 'Drarry', mode: 'single', pairing: 'Draco / Harry',
+    sheetId: '1XDO0bKnLPmeURufZ4mwyifeJynwFVszCfayA_FEtKPY', migrateFrom: 'drarry',
+    accent: { color: '#D4F55B', on: '#111111', text: '#4A6600', textDark: '#D4F55B' } },
   { id: 'merlin', name: 'Merlin', title: 'Merthur', mode: 'single', pairing: 'Arthur / Merlin',
     sheetId: '1BBMVuyRjt68rzE4gSQyyaGvq_6RHp3qsT04kzlzpung',
     accent: { color: '#B3123A', on: '#FFFFFF', text: '#B3123A', textDark: '#FF8FA3' } },
@@ -108,6 +121,28 @@ window.FANDOMS = [
   if (q && byId[q]) { id = q; set(window.FICS_KEYS.lastFandom, q); }
   else { var last = get(window.FICS_KEYS.lastFandom); if (last && byId[last]) id = last; }
   window.FICS_INITIAL_FANDOM = id;
+
+  // Sign-in handover from the older single-fandom apps (same site, same Google client): if this app
+  // has no valid token but one of them does, reuse it so there's no extra sign-in. Read-only: the old
+  // apps' keys are left exactly as they are.
+  // Done once only, so signing out of this app later is never undone by an old app's token.
+  try {
+    var now = Date.now();
+    var mine = JSON.parse(get(window.FICS_KEYS.token) || 'null');
+    if (!get('fics:legacy-token-checked') && !(mine && mine.token && mine.expiresAt > now)) {
+      var best = null, anyOld = false;
+      window.FANDOMS.forEach(function (f) {
+        if (!f.migrateFrom) return;
+        var t = null;
+        try { t = JSON.parse(get(f.migrateFrom + '-gtoken') || 'null'); } catch (e) {}
+        if (t && t.token) anyOld = true;
+        if (t && t.token && t.expiresAt > now && (!best || t.expiresAt > best.expiresAt)) best = t;
+      });
+      if (best) set(window.FICS_KEYS.token, JSON.stringify({ token: best.token, expiresAt: best.expiresAt }));
+      if (anyOld && !get(window.FICS_KEYS.signedIn)) set(window.FICS_KEYS.signedIn, '1'); // lets silent renewal try
+    }
+    set('fics:legacy-token-checked', '1');
+  } catch (e) {}
   try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch (e) {}
   window.applyTheme(get(window.FICS_KEYS.theme));
   window.applyFandomChrome(byId[id]);
@@ -655,19 +690,28 @@ async function sheetsApiWriteCell(accessToken, sheetId, rowNumber, colLetterVal,
 }
 
 async function sheetsApiWriteStatus(accessToken, sheetId, rowNumber, { status, dnr, kg, bk, dnrTags, dnrShips, dnrCategory, enjoyment }, cols) {
-  const range = encodeURIComponent(`'${SHEET_TAB}'!B${rowNumber}:E${rowNumber}`);
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`;
   const statusLabel = status === STATUS_UNREAD ? '' : STATUS_LABELS[status];
   const dnrLabel = dnr ? DNR_LABELS[dnr] : '';
-  const body = { values: [[statusLabel, dnrLabel, kg ? 'Y' : '', bk ? 'Y' : '']] };
-  const res = await fetchWithTimeout(url, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }, 15000);
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw authFetchError(res.status, errBody);
+  if (cols.statusBlock !== false) {
+    // The usual layout (Status, DNR Reason, K, B in columns B–E): one write, exactly as the original apps.
+    const range = encodeURIComponent(`'${SHEET_TAB}'!B${rowNumber}:E${rowNumber}`);
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueInputOption=USER_ENTERED`;
+    const body = { values: [[statusLabel, dnrLabel, kg ? 'Y' : '', bk ? 'Y' : '']] };
+    const res = await fetchWithTimeout(url, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, 15000);
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw authFetchError(res.status, errBody);
+    }
+  } else {
+    // Any other layout: each of the four is written to the column with its header name.
+    if (cols.status) await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.status, statusLabel);
+    if (cols.dnrReason) await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.dnrReason, dnrLabel);
+    if (cols.k) await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.k, kg ? 'Y' : '');
+    if (cols.b) await sheetsApiWriteCell(accessToken, sheetId, rowNumber, cols.b, bk ? 'Y' : '');
   }
 
   if (cols.dnrTags) {
@@ -754,7 +798,7 @@ function readingDatesLine(status, f) {
   const parts = [];
   if (status === STATUS_READ) {
     if (f.dateStarted) parts.push(`Started ${fmtShortDate(f.dateStarted)}`);
-    if (f.dateRead) parts.push(`Read ${fmtShortDate(f.dateRead)}`);
+    parts.push(f.dateRead ? `Read ${fmtShortDate(f.dateRead)}` : 'Read · before tracking');
     if (f.timesRead >= 2) parts.push(`Read ${f.timesRead}×`);
   } else if (status === STATUS_READING || status === STATUS_PAUSED) {
     if (f.dateStarted) parts.push(`Started ${fmtShortDate(f.dateStarted)}`);
@@ -813,6 +857,16 @@ function computeReadingTransition(prev, patch, now) {
     events.push({ event: 'DNF', chaptersRead: chaptersNow, readNumber: readNo(prev.timesRead) });
   }
   return { fields, events };
+}
+
+// "Read before tracking": a fic read before tracking started. Status, rating, kudos and bookmark
+// are saved as usual (they're in the patch); on top of that only Chapters Read (all published
+// chapters) and Times Read (1, only if blank) are written. No dates, no Last Read, and no Reading Log
+// event, so it never shows up in dated stats.
+function readBeforeTrackingTransition(prev) {
+  const fields = { chaptersRead: prev.chapters || 0 };
+  if (!prev.timesRead) fields.timesRead = 1;
+  return { fields, events: [] };
 }
 
 async function sheetsApiWriteReadingFields(accessToken, sheetId, rowNumber, values, keys, cols) {
@@ -1020,6 +1074,52 @@ function sessionEndStampFor(session, hhmm, nowMs) {
 }
 // </session-feature>
 
+// ---------- One-time settings migration from an older single-fandom app ----------
+// For a fandom with `migrateFrom` set (see FANDOMS). The old apps saved only three things on the
+// device: the sign-in token (handed over at start-up, top of file), an in-progress session timer
+// ("<old>-reading-session") and a queue of Reading Log rows not yet sent ("<old>-log-queue").
+// They never saved filters, sort or other settings, so there is nothing else to bring across.
+// - Old keys are only read, never changed or deleted.
+// - If the old app still has rows waiting to sync, nothing is copied and the reader is asked to open
+//   the old app once; this is tried again on every launch until that queue is empty.
+// - Once done, "<fandom id>:migrated" records what was copied, so it never runs again.
+function legacyUnsyncedCount(prefix) {
+  const q = lsGet(`${prefix}-log-queue`, []);
+  if (!Array.isArray(q) || !q.length) return 0;
+  const sent = new Set(lsGet(`${prefix}-log-sent`, []));
+  return q.filter(it => it && !sent.has(it.id)).length;
+}
+function migrateLegacy(f) {
+  if (!f.migrateFrom) return { done: true, copied: [] };
+  const already = lsGet(fkey(f.id, 'migrated'), null);
+  if (already) return { done: true, copied: already.copied || [], at: already.at, already: true };
+  const prefix = f.migrateFrom;
+  const unsynced = legacyUnsyncedCount(prefix);
+  if (unsynced) return { done: false, unsynced };
+  const copied = [];
+  const oldSession = lsGet(`${prefix}-reading-session`, null);
+  const validSession = oldSession && oldSession.ficId && oldSession.link && typeof oldSession.startMs === 'number' && oldSession.startStamp && oldSession.startDate;
+  if (validSession && !loadActiveSession(f.id)) { saveActiveSession(f.id, oldSession); copied.push('reading session timer'); }
+  const record = { at: Date.now(), from: prefix, copied };
+  lsSet(fkey(f.id, 'migrated'), record);
+  return { done: true, copied, at: record.at };
+}
+
+// ---------- Columns the app must never write: anything holding a formula ----------
+// Rows 1–2 of the Data List are read with formulas shown. Any column whose header or first data
+// cell is a formula (an ARRAYFORMULA helper such as a DNF estimate, or a per-row formula) is never
+// written, even if its header matches a column the app normally writes.
+async function sheetsApiGetFormulaColumns(accessToken, sheetId) {
+  const range = encodeURIComponent(`'${SHEET_TAB}'!A1:ZZ2`);
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueRenderOption=FORMULA`;
+  const res = await fetchWithTimeout(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 15000);
+  if (!res.ok) throw authFetchError(res.status, await res.text());
+  const rows = (await res.json()).values || [];
+  const out = new Set();
+  rows.forEach(r => r.forEach((v, i) => { if (typeof v === 'string' && v.trim().startsWith('=')) out.add(i); }));
+  return out;
+}
+
 // ---------- Per-fandom data cache (IndexedDB) ----------
 const IDB_NAME = 'fics-cache', IDB_STORE = 'fandoms';
 let idbPromise = null;
@@ -1069,6 +1169,7 @@ function useSheetFics(fandom, auth) {
   const [cacheState, setCacheState] = useState('loading'); // 'loading' | 'hit' | 'miss'
   const [readingMissing, setReadingMissing] = useState([]);
   const [logMissing, setLogMissing] = useState(false);
+  const [formulaBlocked, setFormulaBlocked] = useState([]);
   const [queueCount, setQueueCount] = useState(() => outboxLoad(fid).length);
   const ficsRef = useRef([]);
   const colsRef = useRef({ reading: {} });
@@ -1203,18 +1304,34 @@ function useSheetFics(fandom, auth) {
       const header = rows[0];
       const headerIndex = {};
       header.forEach((h, i) => { headerIndex[h.trim()] = i; });
-      const col = (name) => (headerIndex[name] !== undefined ? colLetter(headerIndex[name]) : null);
+      // Formula columns are never written (see sheetsApiGetFormulaColumns). If that check itself
+      // fails for a reason other than sign-in, the sheet is still loaded as before.
+      let formulaIdx = new Set();
+      try { formulaIdx = await sheetsApiGetFormulaColumns(tok, sheetId); } catch (e) { if (e.isAuthError) throw e; }
+      const blocked = [];
+      const col = (name) => {
+        const i = headerIndex[name];
+        if (i === undefined) return null;
+        if (formulaIdx.has(i)) { if (!blocked.includes(name)) blocked.push(name); return null; }
+        return colLetter(i);
+      };
       const reading = {};
       const missing = [];
       READING_FIELD_KEYS.forEach(k => {
         const name = READING_COL_NAMES[k];
         reading[k] = col(name);
-        if (reading[k] === null) missing.push(name);
+        if (reading[k] === null && headerIndex[name] === undefined) missing.push(name);
       });
+      const status4 = ['Status', 'DNR Reason', 'K', 'B'];
+      const statusBlock = status4.every((name, j) => headerIndex[name] === j + 1 && !formulaIdx.has(j + 1));
       colsRef.current = {
         dnrTags: col('DNR Tags'), dnrShips: multi ? col('DNR Ships') : null, dnrCategory: col('DNR Category'),
         enjoyment: col('Enjoyment'), rec: col('Recommended'), recSource: col('Rec Source'), reading,
+        statusBlock,
+        status: col('Status'), dnrReason: col('DNR Reason'), k: col('K'), b: col('B'),
+        blocked,
       };
+      setFormulaBlocked(blocked);
       setReadingMissing(missing);
       const parsedFics = [];
       for (let i = 1; i < rows.length; i++) {
@@ -1281,7 +1398,9 @@ function useSheetFics(fandom, auth) {
     }
 
     const now = melbourneNow();
-    const transition = computeReadingTransition(prevFic, patch, now);
+    const transition = (opts && opts.beforeTracking)
+      ? readBeforeTrackingTransition(prevFic)
+      : computeReadingTransition(prevFic, patch, now);
     // A reading session records its own chapter count ("Session ended"), so its save skips the Progress row.
     if (opts && opts.skipLogEvents) transition.events = [];
 
@@ -1359,7 +1478,7 @@ function useSheetFics(fandom, auth) {
   const addLogRow = useCallback((row, id) => { queueLogRows([row], id); syncStates(); flush(); }, [flush, syncStates]);
   const removeLogRow = useCallback((id) => { outboxRemove(fid, id); syncStates(); }, [fid, syncStates]);
 
-  return { fics, status, errorMsg, lastSynced, cacheState, refresh, updateFic, retrySync, discardFailed, updateRecommendation, stepChapters,
+  return { fics, status, errorMsg, lastSynced, cacheState, refresh, updateFic, retrySync, discardFailed, updateRecommendation, stepChapters, formulaBlocked,
     readingMissing, logMissing, queueCount, flush, addLogRow, removeLogRow };
 }
 
@@ -1626,7 +1745,7 @@ function Chip({ active, onClick, children, color, textColor }) {
 
 // panelOnly + initialPending let the Currently-reading shelf open the very same Read / DNF
 // flows (rating, kudos, bookmark, Content picker) without the status chips around them.
-function StatusPicker({ ficId, status, dnr, dnrTags, dnrShips, dnrCategory, enjoyment, kg, bk, tags, ships, category, onUpdate, reading, canAddDateRead, initialPending, panelOnly, onDone, onCancel, title, authors }) {
+function StatusPicker({ ficId, status, dnr, dnrTags, dnrShips, dnrCategory, enjoyment, kg, bk, tags, ships, category, onUpdate, reading, canAddDateRead, initialPending, panelOnly, onDone, onCancel, title, authors, sessionActive }) {
   const { multi } = useContext(FandomCtx);
   const shipList = multi ? (ships || []) : [];
   const [pendingStatus, setPendingStatus] = useState(initialPending ?? null);
@@ -1637,10 +1756,15 @@ function StatusPicker({ ficId, status, dnr, dnrTags, dnrShips, dnrCategory, enjo
   const [pickedDnrShips, setPickedDnrShips] = useState([]);
   const [pickedDnrCategory, setPickedDnrCategory] = useState(false);
   const [pendingRating, setPendingRating] = useState(initialPending === STATUS_READ ? (enjoyment || 0) : 0);
+  // "Just finished" (default, every time the sheet opens) or "Read before tracking".
+  const [readMode, setReadMode] = useState('now');
+  // Only offered for a fic that isn't being read right now.
+  const canReadBefore = status !== STATUS_READING && status !== STATUS_PAUSED && !sessionActive;
+  const beforeTracking = canReadBefore && readMode === 'before';
 
   const setStatus = (s) => {
     setPendingDnrCode(null);
-    if (s === STATUS_READ) { setPendingRating(enjoyment || 0); setPendingStatus(STATUS_READ); }
+    if (s === STATUS_READ) { setPendingRating(enjoyment || 0); setReadMode('now'); setPendingStatus(STATUS_READ); }
     else if (s === STATUS_DNF || s === STATUS_NOTINT) setPendingStatus(s);
     else {
       const keepEnjoyment = s === STATUS_READING || s === STATUS_PAUSED;
@@ -1649,7 +1773,12 @@ function StatusPicker({ ficId, status, dnr, dnrTags, dnrShips, dnrCategory, enjo
     }
   };
   const toggleRating = (n) => setPendingRating(prev => prev === n ? 0 : n);
-  const confirmRead = (kgVal, bkVal) => { onUpdate(ficId, { status: STATUS_READ, kg: kgVal, bk: bkVal, enjoyment: pendingRating }); setPendingStatus(null); onDone && onDone(); };
+  const confirmRead = (kgVal, bkVal) => {
+    const patch = { status: STATUS_READ, kg: kgVal, bk: bkVal, enjoyment: pendingRating };
+    if (beforeTracking) onUpdate(ficId, patch, { beforeTracking: true });
+    else onUpdate(ficId, patch);
+    setPendingStatus(null); onDone && onDone();
+  };
   const confirmDnr = (reasonCode) => {
     if (reasonCode === DNR_CONTENT) {
       setPendingDnrCode(reasonCode);
@@ -1737,10 +1866,22 @@ function StatusPicker({ ficId, status, dnr, dnrTags, dnrShips, dnrCategory, enjo
         <Sheet label={pendingStatus === STATUS_READ ? 'Mark as read' : 'Why are you marking this?'} onClose={closeSheet}>
           <div>
             <div className="t-meta" style={{ fontWeight: 700 }}>
-              {pendingStatus === STATUS_READ ? 'Finished' : pendingStatus === STATUS_DNF ? 'Marking DNF' : 'Marking Not interested'}{byLine ? ` · ${byLine}` : ''}
+              {pendingStatus === STATUS_READ ? (beforeTracking ? 'Read before tracking' : 'Finished') : pendingStatus === STATUS_DNF ? 'Marking DNF' : 'Marking Not interested'}{byLine ? ` · ${byLine}` : ''}
             </div>
             <h2 className="t-sheet" style={{ marginTop: 2 }}>{pendingStatus === STATUS_READ ? <span className="hl">{title}</span> : title}</h2>
           </div>
+
+          {pendingStatus === STATUS_READ && canReadBefore && (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="seg" role="group" aria-label="When did you read it?">
+                <button onClick={() => setReadMode('now')} aria-pressed={readMode === 'now'}>Just finished</button>
+                <button onClick={() => setReadMode('before')} aria-pressed={readMode === 'before'}>Read before tracking</button>
+              </div>
+              {readMode === 'before' && (
+                <p className="t-caption" style={{ margin: 0 }}>No date is saved, so it won't count in this week's stats.</p>
+              )}
+            </div>
+          )}
 
           {pendingStatus === STATUS_READ && (
             <>
@@ -1986,7 +2127,7 @@ function FicCard({ fic, scores, ficIndex, onUpdate, onRetry, onDiscard, onUpdate
       {expanded && (
         <StatusPicker ficId={fic.id} status={status} dnr={scores.dnr[ficIndex]} dnrTags={fic.dnrTags} dnrShips={fic.dnrShips} dnrCategory={fic.dnrCategory} enjoyment={fic.enjoyment} kg={scores.kg[ficIndex]} bk={scores.bk[ficIndex]} tags={fic.tags} ships={fic.ships} category={fic.category} onUpdate={onUpdate}
           reading={{ dateStarted: fic.dateStarted, dateRead: fic.dateRead, timesRead: fic.timesRead }} canAddDateRead={canAddDateRead}
-          title={fic.title} authors={fic.authors} />
+          title={fic.title} authors={fic.authors} sessionActive={!!(sessionApi && sessionApi.active && sessionApi.active.ficId === fic.id)} />
       )}
     </article>
   );
@@ -2474,8 +2615,10 @@ function FandomApp({ fandom, auth, onSwitch }) {
   const fid = fandom.id;
   const multi = isMulti(fandom);
   const { accessToken, gisReady, signIn, signOut, authError, renewing } = auth;
+  // Must run before the hooks below read this fandom's saved session.
+  const [migration] = useState(() => migrateLegacy(fandom));
   const data = useSheetFics(fandom, auth);
-  const { fics, status: syncStatus, errorMsg, lastSynced, cacheState, refresh, updateFic, retrySync, discardFailed, updateRecommendation, stepChapters, readingMissing, logMissing, queueCount } = data;
+  const { fics, status: syncStatus, errorMsg, lastSynced, cacheState, refresh, updateFic, retrySync, discardFailed, updateRecommendation, stepChapters, readingMissing, logMissing, queueCount, formulaBlocked } = data;
   const scores = useComputedScores(fics, multi);
   const sessionApi = useReadingSession({ fid, fics, updateFic, logMissing, data });
 
@@ -2674,6 +2817,16 @@ function FandomApp({ fandom, auth, onSwitch }) {
             {failedSyncCount} fic{failedSyncCount === 1 ? '' : 's'} failed to save to your sheet — scroll down to find the red "tap to retry" note on each.
           </div>
         )}
+        {!migration.done && (
+          <div className="banner warn" role="status">
+            {fandom.title} has unsynced changes — open the old {fandom.title} app once to sync them, then come back.
+          </div>
+        )}
+        {formulaBlocked.length > 0 && (
+          <div className="banner warn">
+            Not writing to {formulaBlocked.map(c => `"${c}"`).join(', ')}: {formulaBlocked.length === 1 ? 'that column holds' : 'those columns hold'} a formula in your sheet.
+          </div>
+        )}
         {(readingMissing.length > 0 || logMissing) && (
           <div className="banner warn">
             Reading tracker isn't fully set up, so some things aren't being saved:
@@ -2821,6 +2974,11 @@ function FandomApp({ fandom, auth, onSwitch }) {
               {THEME_OPTIONS.map(([key, label]) => (<button key={key} onClick={() => chooseTheme(key)} aria-pressed={theme === key}>{label}</button>))}
             </div>
           </div>
+          {fandom.migrateFrom && migration.done && (
+            <p className="t-caption" style={{ margin: 0 }}>
+              Old {fandom.title} app: {migration.copied.length ? `brought over its ${migration.copied.join(', ')}` : 'nothing needed bringing over'}{migration.at ? ` (${new Date(migration.at).toLocaleDateString()})` : ''}. The old app still works and wasn't changed.
+            </p>
+          )}
           <button onClick={() => { setShowSettings(false); setShowExport(true); }} className="btn btn-secondary btn-lg"><Download size={16} /> Backup list</button>
           {accessToken && <button onClick={signOut} className="btn btn-text" style={{ color: 'var(--error-text)' }}>Sign out</button>}
         </Sheet>
